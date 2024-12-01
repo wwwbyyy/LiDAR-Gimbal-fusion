@@ -1,0 +1,11 @@
+#STATIC_MODE: 0, DYNAMIC_MODE: 1
+overlap_mode: 1
+
+voxel_leaf: 0.1
+
+total_time_s: 8.0
+wait_time_s: 0.0
+
+frame_process_num: 2000
+
+#frame_skip_num: 4
