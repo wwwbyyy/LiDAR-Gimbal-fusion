@@ -1,0 +1,6 @@
+<launch>
+    <!-- Launch the lidar node -->
+    <node pkg="lidar" type="lidar_node" name="lidar_node" output="screen"/>
+    <!-- Launch the pelco gimbal node -->
+    <node pkg="pelco_control" type="pelco_control_node" name="pelco_control_node" output="screen"/>
+</launch>

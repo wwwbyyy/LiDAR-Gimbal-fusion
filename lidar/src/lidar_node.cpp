@@ -102,11 +102,12 @@ struct ProgramConfigs{
 } cfg;
 REFLCPP_METAINFO(ProgramConfigs, ,(overlap_mode)(voxel_leaf)(total_time_s)(wait_time_s)(frame_process_num))
 
-ros::Subscriber gimbal_sub_h;
-ros::Subscriber gimbal_sub_v;
+// ros::Subscriber gimbal_sub_h;
+// ros::Subscriber gimbal_sub_v;
 ros::Subscriber cloud_sub;
 ros::Subscriber imu_sub;
 ros::Subscriber gimbal_sub_pan;
+ros::Subscriber gimbal_sub_tilt;
 
 ros::Publisher cloud_pub;
 
@@ -132,7 +133,7 @@ const Eigen::Matrix3f init_pose = Eigen::AngleAxisf(-(0) * M_PI / 180.0, Eigen::
 const double Avia_dt = 4.0 / 960000;
 const double frame_T = 0.1;
 const int frame_point_num = 24000;
-double start_timestamp = 0.0;
+double start_timestamp = 0.0;  // Will be set to ros::Time::now().toSec() in main()
 TimestampConverter t_cvter;
 //const double end_time_329 = 366099597000 / 1e9;
 
@@ -248,22 +249,6 @@ double angle_integral(const std::map<double, AngV>& imu_ang_v, double start_time
   return angle_change; // 返回在时间区间内转过的总角度
 }
 
-void gimbal_horizontal_callback(gimbal::TimestampFloatConstPtr msg)
-{
-  gimbal_horizontal_angle.header = msg->header;
-  gimbal_horizontal_angle.value = msg->value * M_PIq / 180.0;
-  gimbal_inited_h = true;
-  h_ang_map[gimbal_horizontal_angle.header.stamp.toSec()] = gimbal_horizontal_angle.value;
-}
-
-void gimbal_vertical_callback(gimbal::TimestampFloatConstPtr msg)
-{
-  gimbal_vertical_angle.header = msg->header;
-  gimbal_vertical_angle.value = (msg->value) * M_PIq / 180.0;
-  gimbal_inited_v = true;
-  v_ang_map[gimbal_vertical_angle.header.stamp.toSec()] = gimbal_vertical_angle.value;
-}
-
 void gimbal_pan_callback(std_msgs::Float32MultiArray msg)
 {
   t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
@@ -271,7 +256,15 @@ void gimbal_pan_callback(std_msgs::Float32MultiArray msg)
   gimbal_horizontal_angle.value = msg.data[1] * M_PIq / 180.0;
   gimbal_inited_h = true;
   v_ang_map[gimbal_horizontal_angle.header.stamp.toSec()] = -gimbal_horizontal_angle.value;
-  h_ang_map[start_timestamp] = 0;
+}
+
+void gimbal_tilt_callback(std_msgs::Float32MultiArray msg)
+{
+  t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
+  gimbal_vertical_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
+  gimbal_vertical_angle.value = msg.data[1] * M_PIq / 180.0;
+  gimbal_inited_v = true;
+  h_ang_map[gimbal_vertical_angle.header.stamp.toSec()] = -gimbal_vertical_angle.value;
 }
 
 void imu_callback(sensor_msgs::Imu imu_data)
@@ -316,12 +309,13 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
 
   map_mtx.lock();
   //Get the frame's initial pose by feedback.
+  h_ang_map[point_time] = 0;
   auto it_h_ang = --h_ang_map.lower_bound(point_time);
   auto it_v_ang = --v_ang_map.lower_bound(point_time);
   Eigen::Matrix3f yaw = Eigen::AngleAxisf(-(it_h_ang->second - yaw_shift), Eigen::Vector3f::UnitZ()).toRotationMatrix();
   Eigen::Matrix3f pitch = Eigen::AngleAxisf(-(it_v_ang->second - pitch_shift), Eigen::Vector3f::UnitY()).toRotationMatrix();
   Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
-  pose.topLeftCorner<3, 3>() = init_pose * yaw * pitch;
+  pose.topLeftCorner<3, 3>() = init_pose * pitch;
   map_mtx.unlock();
 
   CloudType::Ptr p_cloud_out(new CloudType);
@@ -347,16 +341,16 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
           dyaw_angle = angle_integral(imu_ang_v, it_h_ang->first, point_time, 3);
           dpitch_angle = angle_integral(imu_ang_v, it_v_ang->first, point_time, 2);
           std::cout << "(" << dpitch_angle / M_PI * 180.0 << "," << dyaw_angle / M_PI * 180.0 << ")" << std::endl;
-          if (std::abs(it_h_ang->second + dyaw_angle - gimbal_horizontal_angle.value) > 0.05)
-          {
-            std::cout << "Map time: " << std::fixed << std::setprecision(9) << it_h_ang->first << ", " << "Gimbal time: " << gimbal_horizontal_angle.header.stamp.toSec() << std::endl;
-            std::cout << it_h_ang->second + dyaw_angle << ", " << gimbal_horizontal_angle.value << std::endl; 
-          }
-          if (std::abs(it_v_ang->second + dpitch_angle - gimbal_vertical_angle.value) > 0.05)
-          {
-            std::cout << "Map time: " << std::fixed << std::setprecision(9) << it_v_ang->first << ", " << "Gimbal time: " << gimbal_vertical_angle.header.stamp.toSec() << std::endl;
-            std::cout << it_v_ang->second + dpitch_angle << ", " << gimbal_vertical_angle.value << std::endl; 
-          }
+          // if (std::abs(it_h_ang->second + dyaw_angle - gimbal_horizontal_angle.value) > 0.05)
+          // {
+          //   std::cout << "Map time: " << std::fixed << std::setprecision(9) << it_h_ang->first << ", " << "Gimbal time: " << gimbal_horizontal_angle.header.stamp.toSec() << std::endl;
+          //   std::cout << it_h_ang->second + dyaw_angle << ", " << gimbal_horizontal_angle.value << std::endl; 
+          // }
+          // if (std::abs(it_v_ang->second + dpitch_angle - gimbal_vertical_angle.value) > 0.05)
+          // {
+          //   std::cout << "Map time: " << std::fixed << std::setprecision(9) << it_v_ang->first << ", " << "Gimbal time: " << gimbal_vertical_angle.header.stamp.toSec() << std::endl;
+          //   std::cout << it_v_ang->second + dpitch_angle << ", " << gimbal_vertical_angle.value << std::endl; 
+          // }
         }
         else{
           //If not, calculate the pose from the previous point.
@@ -383,20 +377,30 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
 
       }
       break;
+    default:
+      ROS_INFO_STREAM("\033[91m" << "Invalid overlap mode." << "\033[0m");
+      break;
   }
+
+  // Because the LiDAR is not aligned with the gimbal, 
+  // we need to rotate the point cloud to align with the gimbal.
+  Eigen::Matrix4f align_pose = Eigen::Matrix4f::Identity();
+  align_pose.topLeftCorner<3, 3>() = Eigen::AngleAxisf(M_PI / 2, Eigen::Vector3f::UnitX()).toRotationMatrix();
+  pcl::transformPointCloud(*p_cloud_out, *p_cloud_out, align_pose);
 
   sensor_msgs::PointCloud2 msg_out;
   pcl::toROSMsg(*p_cloud_out, msg_out);
   msg_out.header.frame_id = "map";
   cloud_pub.publish(msg_out);
-
   static bool is_save = false;
-  *p_cloud_complete += *p_cloud_out;
+  if (!is_save)
+    *p_cloud_complete += *p_cloud_out;
+
   if (point_time > point_time_start + cfg.total_time_s && !is_save)
   {
     is_save = true;
     ROS_INFO_STREAM("\033[92m" << "Saving point cloud to pc.ply..." << "\033[0m");
-    if (pcl::io::savePLYFile("/home/wuby/pc.ply", *p_cloud_complete) == 0) {
+    if (pcl::io::savePLYFile("/home/wuby/localization/Servo-Lidar-Loclization/data/pc.ply", *p_cloud_complete) == 0) {
         ROS_INFO_STREAM("\033[92m" << "Successful to save point cloud." << "\033[0m");
         //std::cout << "Successful to save point cloud." << std::endl;
     } else {
@@ -413,7 +417,6 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
 
   profiler_pointcloud2_callback.stop();
 }
-
 
 namespace fs = std::filesystem;
 
@@ -443,9 +446,10 @@ int main(int argc, char **argv)
 
   imu_sub = nh.subscribe("/livox/imu", 1, &imu_callback);
   cloud_sub = nh.subscribe("/livox/lidar", 1, &pointcloud2_callback);
-  gimbal_sub_h = nh.subscribe("/horizontal_angle", 1, &gimbal_horizontal_callback);
-  gimbal_sub_v = nh.subscribe("/vertical_angle", 1, &gimbal_vertical_callback);
+  // gimbal_sub_h = nh.subscribe("/horizontal_angle", 1, &gimbal_horizontal_callback);
+  // gimbal_sub_v = nh.subscribe("/vertical_angle", 1, &gimbal_vertical_callback);
   gimbal_sub_pan = nh.subscribe("pan", 1, &gimbal_pan_callback);
+  gimbal_sub_tilt = nh.subscribe("tilt", 1, &gimbal_tilt_callback);
   cloud_pub = nh.advertise<sensor_msgs::PointCloud2>("/registered_cloud", 1);
 
   ros::spin();

@@ -7,8 +7,11 @@
 #include <cmath>
 #include <utility>
 #include <cstdint>
+#include <signal.h>
 
 #define read_buffer_size 7
+
+const float tilt_zero_deg = -20; // the realistic zero degree of tilt
 
 typedef enum command
 {
@@ -41,6 +44,8 @@ float normalize_angle_tilt(float angle)
 {
     // 0水平，向下0-90，向上359-270，留5度限位
     float normalized_angle = std::max(std::min(angle, 85.0f), -85.0f);
+    normalized_angle = normalized_angle + tilt_zero_deg;
+    normalized_angle = std::max(std::min(normalized_angle, 85.0f), -85.0f);
     if (normalized_angle < 0) {
         normalized_angle = 360.0 + normalized_angle;
     }
@@ -171,7 +176,7 @@ void read_from_serial_port(serial::Serial& serial_port)
     if (check_serial_data(feedback_data))
     {
         float position = data_to_position(feedback_data[3] - 0x08, feedback_data[4], feedback_data[5]);
-        printf("position: %.2f deg\n", position);
+        //printf("position: %.2f deg\n", position);
         std_msgs::Float32MultiArray feedback_msg;
         double current_time = ros::Time::now().toSec() - start_time;
         feedback_msg.data.push_back((float)current_time);
@@ -191,16 +196,23 @@ void read_from_serial_port(serial::Serial& serial_port)
     // msg_pub.publish(feedback_msg);
 }
 
+// void signalHandler(int signum) {
+//     ROS_INFO("Interrupt signal (%d) received. Setting flag to close serial port...", signum);
+//     flag = 1;
+//     ros::shutdown();
+// }
 
 int main(int argc, char **argv) {
     // 初始化ROS节点
     ros::init(argc, argv, "pelco_node");
     ros::NodeHandle nh;
 
+    //signal(SIGINT, signalHandler);
+
     // 配置串口
     serial::Serial my_serial;
     my_serial.setPort("/dev/ttyUSB0");  // 修改为实际的设备名
-    my_serial.setBaudrate(2400);
+    my_serial.setBaudrate(38400);
     serial::Timeout to = serial::Timeout::simpleTimeout(50);
     my_serial.setTimeout(to);
 
@@ -232,9 +244,11 @@ int main(int argc, char **argv) {
     command.resize(7);
 
     // 复位
-    command = pelco_d_command(TILT, 10.0);
+    command = pelco_d_command(TILT, 0);
     my_serial.write(command);
+    ROS_INFO("Tilt reset");
 
+    //int test_i = 0;
     while (ros::ok()) {
 
         // 提示用户输入十六进制命令和数据
@@ -299,9 +313,12 @@ int main(int argc, char **argv) {
 
         // ros::spinOnce();
         loop_rate.sleep();
+        // if (test_i++ > 100)
+        //     break;
     }
 
     //STOP
+    ROS_INFO("Will stop.");
     command[0] = 0xFF;              // 同步字节
     command[1] = 0x01;              // 地址字节
     command[2] = 0x00;              // 命令字节1
@@ -311,6 +328,8 @@ int main(int argc, char **argv) {
     command[6] = 0x01 + STOP;
     my_serial.write(command);
 
+    ROS_INFO("Stopped, and will close serial.");
     my_serial.close();
+    ROS_INFO("Serial closed.");
     return 0;
 }
