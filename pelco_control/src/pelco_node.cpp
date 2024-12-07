@@ -11,7 +11,7 @@
 
 #define read_buffer_size 7
 
-const float tilt_zero_deg = -20; // the realistic zero degree of tilt
+const float tilt_zero_deg = -24; // the realistic zero degree of tilt
 
 typedef enum command
 {
@@ -53,6 +53,15 @@ float normalize_angle_tilt(float angle)
     return normalized_angle;
 }
 
+float reverse_normalize_angle_tilt(float angle)
+{
+    float normalized_angle = angle - tilt_zero_deg;
+    if (normalized_angle < 0)
+    {
+        normalized_angle = 360.0 + normalized_angle;
+    }
+    return normalized_angle;
+}
 
 // 将位置（float类型，角度制）映射为PELCO-D的位置值，范围为0x0000到0xFFFF
 std::pair<uint8_t, uint8_t> position_to_data(uint8_t cmd, float position) 
@@ -112,6 +121,8 @@ std::vector<uint8_t> pelco_d_command(uint8_t cmd, float data)
     switch (cmd)
     {
         case PAN:
+            data_bytes = position_to_data(cmd, data);
+            break;
         case TILT:
             data_bytes = position_to_data(cmd, data);
             break;
@@ -122,6 +133,9 @@ std::vector<uint8_t> pelco_d_command(uint8_t cmd, float data)
             data_bytes = speed_to_data(data, data);
             break;
         case ASKPAN:
+            data_bytes.first  = 0x0;
+            data_bytes.second = 0x0;
+            break;
         case ASKTILT:
             data_bytes.first  = 0x0;
             data_bytes.second = 0x0;
@@ -180,11 +194,16 @@ void read_from_serial_port(serial::Serial& serial_port)
         std_msgs::Float32MultiArray feedback_msg;
         double current_time = ros::Time::now().toSec() - start_time;
         feedback_msg.data.push_back((float)current_time);
-        feedback_msg.data.push_back(position);
         if (feedback_data[3] - 0x08 == ASKPAN)
+        {
+            feedback_msg.data.push_back(position);
             pan_pub.publish(feedback_msg);
+        }
         else if (feedback_data[3] - 0x08 == ASKTILT)
+        {
+            feedback_msg.data.push_back(reverse_normalize_angle_tilt(position));
             tilt_pub.publish(feedback_msg);
+        }
     }
     
 
@@ -237,7 +256,7 @@ int main(int argc, char **argv) {
 
     // ros::Timer timer = nh.createTimer(ros::Duration(0.08), angle_timer_callback);
 
-    ros::Rate loop_rate(15);
+    ros::Rate loop_rate(40);
     int ctrl = 0;
     int cnt = 0;
     std::vector<uint8_t> command;
@@ -285,25 +304,24 @@ int main(int argc, char **argv) {
 
         if (ctrl == 0)
         {
-            command[0] = 0xFF;              // 同步字节
-            command[1] = 0x01;              // 地址字节
-            command[2] = 0x00;              // 命令字节1
-            command[3] = RIGHT;
-            command[4] = 0x3F;
-            command[5] = 0x00;
-            command[6] = 0x01 + RIGHT + 0x3F;
+            // command[0] = 0xFF;              // 同步字节
+            // command[1] = 0x01;              // 地址字节
+            // command[2] = 0x00;              // 命令字节1
+            // command[3] = RIGHT;
+            // command[4] = 0x3F;
+            // command[5] = 0x00;
+            // command[6] = 0x01 + RIGHT + 0x3F;
             ctrl = 1;
         }
-        else
+        else if (ctrl == 1)
         {
-            command[0] = 0xFF;              // 同步字节
-            command[1] = 0x01;              // 地址字节
-            command[2] = 0x00;              // 命令字节1
-            command[3] = ASKPAN;
-            command[4] = 0x00;
-            command[5] = 0x00;
-            command[6] = 0x01 + ASKPAN;
-            // ctrl = 0;
+            command = pelco_d_command(ASKTILT, 0);
+            ctrl = 2;
+        }
+        else if (ctrl == 2)
+        {
+            command = pelco_d_command(ASKPAN, 0);
+            ctrl = 1;
         }
 
         my_serial.write(command);

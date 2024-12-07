@@ -67,6 +67,16 @@ class TimestampConverter{
       timestamp_offsets["ros_stamp"] = 0;
     }
 
+
+    /**
+     * @brief Get the offset between the given ROS time and the given timestamp.
+     *        Suggestted to use this function at each callback function's beginning
+     *        to get the timestamp offset.
+     *
+     * @param timestamp_name The name associated with the timestamp.
+     * @param rostime The ROS time to compare against the given timestamp. Usually the ros now time.
+     * @param timestamp The timestamp(double type) to be gotten offset.
+     */
     void get_offset(const std::string& timestamp_name, const ros::Time& rostime, const double& timestamp){
       if (timestamp_offsets.find(timestamp_name) != timestamp_offsets.end()) {
         return;
@@ -119,7 +129,7 @@ std::mutex map_mtx;
 gimbal::TimestampFloat gimbal_horizontal_angle;
 gimbal::TimestampFloat gimbal_vertical_angle;
 bool gimbal_inited_h = false;
-bool gimbal_inited_v = true;
+bool gimbal_inited_v = false;
 
 std::map<double, AngV> imu_ang_v;
 std::map<double, float> h_ang_map;
@@ -309,13 +319,12 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
 
   map_mtx.lock();
   //Get the frame's initial pose by feedback.
-  h_ang_map[point_time] = 0;
   auto it_h_ang = --h_ang_map.lower_bound(point_time);
   auto it_v_ang = --v_ang_map.lower_bound(point_time);
   Eigen::Matrix3f yaw = Eigen::AngleAxisf(-(it_h_ang->second - yaw_shift), Eigen::Vector3f::UnitZ()).toRotationMatrix();
   Eigen::Matrix3f pitch = Eigen::AngleAxisf(-(it_v_ang->second - pitch_shift), Eigen::Vector3f::UnitY()).toRotationMatrix();
   Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
-  pose.topLeftCorner<3, 3>() = init_pose * pitch;
+  pose.topLeftCorner<3, 3>() = init_pose * pitch * yaw;
   map_mtx.unlock();
 
   CloudType::Ptr p_cloud_out(new CloudType);
