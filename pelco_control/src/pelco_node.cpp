@@ -179,6 +179,7 @@ double start_time;
 // 从串口读取反馈数据
 void read_from_serial_port(serial::Serial& serial_port)
 {
+    double current_time = ros::Time::now().toSec();
     std::vector<uint8_t> feedback_data;
     feedback_data.resize(read_buffer_size + 1); // 缓冲区，过大会导致读取变慢
 
@@ -191,9 +192,10 @@ void read_from_serial_port(serial::Serial& serial_port)
     {
         float position = data_to_position(feedback_data[3] - 0x08, feedback_data[4], feedback_data[5]);
         //printf("position: %.2f deg\n", position);
-        std_msgs::Float32MultiArray feedback_msg;
-        double current_time = ros::Time::now().toSec() - start_time;
-        feedback_msg.data.push_back((float)current_time);
+        std_msgs::Float64MultiArray feedback_msg;
+        //double current_time = ros::Time::now().toSec() - start_time;
+        //ROS_INFO("current time: %.2f", current_time);  
+        feedback_msg.data.push_back(current_time);
         if (feedback_data[3] - 0x08 == ASKPAN)
         {
             feedback_msg.data.push_back(position);
@@ -249,8 +251,8 @@ int main(int argc, char **argv) {
     }
 
     msg_pub = nh.advertise<std_msgs::UInt8MultiArray>("/pelco_msg", 1);
-    pan_pub = nh.advertise<std_msgs::Float32MultiArray>("/pan", 1);
-    tilt_pub = nh.advertise<std_msgs::Float32MultiArray>("/tilt", 1);
+    pan_pub = nh.advertise<std_msgs::Float64MultiArray>("/pan", 1);
+    tilt_pub = nh.advertise<std_msgs::Float64MultiArray>("/tilt", 1);
 
     start_time = ros::Time::now().toSec();
 
@@ -265,7 +267,11 @@ int main(int argc, char **argv) {
     // 复位
     command = pelco_d_command(TILT, 0);
     my_serial.write(command);
-    ROS_INFO("Tilt reset");
+    ros::Duration(0.5).sleep();
+    command = pelco_d_command(PAN, 0);
+    my_serial.write(command);
+    ros::Duration(0.5).sleep();
+    ROS_INFO("Reset.");
 
     //int test_i = 0;
     while (ros::ok()) {
@@ -304,13 +310,7 @@ int main(int argc, char **argv) {
 
         if (ctrl == 0)
         {
-            // command[0] = 0xFF;              // 同步字节
-            // command[1] = 0x01;              // 地址字节
-            // command[2] = 0x00;              // 命令字节1
-            // command[3] = RIGHT;
-            // command[4] = 0x3F;
-            // command[5] = 0x00;
-            // command[6] = 0x01 + RIGHT + 0x3F;
+            command = pelco_d_command(RIGHT, 1);
             ctrl = 1;
         }
         else if (ctrl == 1)

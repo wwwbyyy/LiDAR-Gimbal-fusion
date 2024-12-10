@@ -15,6 +15,7 @@
 #include <sensor_msgs/NavSatFix.h>
 #include <sensor_msgs/Imu.h>
 #include <std_msgs/Float32MultiArray.h>
+#include <std_msgs/Float64MultiArray.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <pcl/io/auto_io.h>
 #include <pcl/common/common.h>
@@ -259,22 +260,26 @@ double angle_integral(const std::map<double, AngV>& imu_ang_v, double start_time
   return angle_change; // 返回在时间区间内转过的总角度
 }
 
-void gimbal_pan_callback(std_msgs::Float32MultiArray msg)
+void gimbal_pan_callback(std_msgs::Float64MultiArray msg)
 {
-  t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
-  gimbal_horizontal_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
+  // t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
+  // gimbal_horizontal_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]) - gimbal_time_loss);
+  gimbal_horizontal_angle.header.stamp.fromSec(msg.data[0]);
   gimbal_horizontal_angle.value = msg.data[1] * M_PIq / 180.0;
   gimbal_inited_h = true;
-  v_ang_map[gimbal_horizontal_angle.header.stamp.toSec()] = -gimbal_horizontal_angle.value;
+  v_ang_map[gimbal_horizontal_angle.header.stamp.toSec()] = gimbal_horizontal_angle.value;
 }
 
-void gimbal_tilt_callback(std_msgs::Float32MultiArray msg)
+void gimbal_tilt_callback(std_msgs::Float64MultiArray msg)
 {
-  t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
-  gimbal_vertical_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
+  // t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
+  // gimbal_vertical_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]) - gimbal_time_loss);
+  gimbal_vertical_angle.header.stamp.fromSec(msg.data[0]);
+  // ROS_INFO_STREAM("msg_time:" << std::fixed << std::setprecision(9) << msg.data[0]);
+  // ROS_INFO_STREAM("Gimbal time:" << std::fixed << std::setprecision(9) << gimbal_vertical_angle.header.stamp.toSec());
   gimbal_vertical_angle.value = msg.data[1] * M_PIq / 180.0;
   gimbal_inited_v = true;
-  h_ang_map[gimbal_vertical_angle.header.stamp.toSec()] = -gimbal_vertical_angle.value;
+  h_ang_map[gimbal_vertical_angle.header.stamp.toSec()] = gimbal_vertical_angle.value;
 }
 
 void imu_callback(sensor_msgs::Imu imu_data)
@@ -321,8 +326,8 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   //Get the frame's initial pose by feedback.
   auto it_h_ang = --h_ang_map.lower_bound(point_time);
   auto it_v_ang = --v_ang_map.lower_bound(point_time);
-  Eigen::Matrix3f yaw = Eigen::AngleAxisf(-(it_h_ang->second - yaw_shift), Eigen::Vector3f::UnitZ()).toRotationMatrix();
-  Eigen::Matrix3f pitch = Eigen::AngleAxisf(-(it_v_ang->second - pitch_shift), Eigen::Vector3f::UnitY()).toRotationMatrix();
+  Eigen::Matrix3f yaw = Eigen::AngleAxisf((it_h_ang->second - yaw_shift), Eigen::Vector3f::UnitZ()).toRotationMatrix();
+  Eigen::Matrix3f pitch = Eigen::AngleAxisf((it_v_ang->second - pitch_shift), Eigen::Vector3f::UnitY()).toRotationMatrix();
   Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
   pose.topLeftCorner<3, 3>() = init_pose * pitch * yaw;
   map_mtx.unlock();
@@ -350,6 +355,8 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
           dyaw_angle = angle_integral(imu_ang_v, it_h_ang->first, point_time, 3);
           dpitch_angle = angle_integral(imu_ang_v, it_v_ang->first, point_time, 2);
           std::cout << "(" << dpitch_angle / M_PI * 180.0 << "," << dyaw_angle / M_PI * 180.0 << ")" << std::endl;
+          // if (dpitch_angle < 0)
+          //   std::cout << --imu_ang_v.lower_bound(point_time)->second.ang_v_y << std::endl;
           // if (std::abs(it_h_ang->second + dyaw_angle - gimbal_horizontal_angle.value) > 0.05)
           // {
           //   std::cout << "Map time: " << std::fixed << std::setprecision(9) << it_h_ang->first << ", " << "Gimbal time: " << gimbal_horizontal_angle.header.stamp.toSec() << std::endl;
