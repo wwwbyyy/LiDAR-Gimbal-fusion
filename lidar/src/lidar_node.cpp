@@ -285,9 +285,16 @@ void gimbal_tilt_callback(std_msgs::Float64MultiArray msg)
 void imu_callback(sensor_msgs::Imu imu_data)
 {
   t_cvter.get_offset("Avia_stamp", ros::Time::now(), imu_data.header.stamp.toSec());
+  double dot_product = imu_data.linear_acceleration.x * imu_data.angular_velocity.x
+                     + imu_data.linear_acceleration.y * imu_data.angular_velocity.y;
+  double ang_v_y = 0;
+  if (dot_product < 0)
+    ang_v_y = std::sqrt(imu_data.angular_velocity.x * imu_data.angular_velocity.x + imu_data.angular_velocity.y * imu_data.angular_velocity.y);
+  else
+    ang_v_y = -std::sqrt(imu_data.angular_velocity.x * imu_data.angular_velocity.x + imu_data.angular_velocity.y * imu_data.angular_velocity.y);
   AngV ang_v_tmp = {
-    imu_data.angular_velocity.x,
-    imu_data.angular_velocity.y,
+    0,
+    ang_v_y,
     imu_data.angular_velocity.z
   };
   imu_ang_v[ros::Time::now().toSec()] = ang_v_tmp;
@@ -416,7 +423,7 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   {
     is_save = true;
     ROS_INFO_STREAM("\033[92m" << "Saving point cloud to pc.ply..." << "\033[0m");
-    if (pcl::io::savePLYFile("/home/wuby/localization/Servo-Lidar-Loclization/data/pc.ply", *p_cloud_complete) == 0) {
+    if (pcl::io::savePLYFile("/data/pc.ply", *p_cloud_complete) == 0) {
         ROS_INFO_STREAM("\033[92m" << "Successful to save point cloud." << "\033[0m");
         //std::cout << "Successful to save point cloud." << std::endl;
     } else {
