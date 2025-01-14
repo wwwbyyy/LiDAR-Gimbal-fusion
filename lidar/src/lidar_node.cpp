@@ -141,7 +141,7 @@ std::map<double, float> v_ang_map;
 const float pitch_shift = (0 - (0)) * M_PI / 180.0;
 const float yaw_shift = (0 - (0)) * M_PI / 180.0;
 const Eigen::Matrix3f init_rotation = Eigen::AngleAxisf(M_PI / 2, Eigen::Vector3f::UnitX()).toRotationMatrix();
-const Eigen::Vector3f init_translation = Eigen::Vector3f(0, 0, 0.05);
+const Eigen::Vector3f init_translation = Eigen::Vector3f(0.05, 0, 0);
 const double Avia_dt = 4.0 / 960000;
 const double frame_T = 0.1;
 const int frame_point_num = 24000;
@@ -289,7 +289,7 @@ void imu_callback(sensor_msgs::Imu imu_data)
   double dot_product = imu_data.linear_acceleration.x * imu_data.angular_velocity.x
                      + imu_data.linear_acceleration.y * imu_data.angular_velocity.y;
   double ang_v_y = 0;
-  if (dot_product < 0)
+  if (dot_product > 0)
     ang_v_y = std::sqrt(imu_data.angular_velocity.x * imu_data.angular_velocity.x + imu_data.angular_velocity.y * imu_data.angular_velocity.y);
   else
     ang_v_y = -std::sqrt(imu_data.angular_velocity.x * imu_data.angular_velocity.x + imu_data.angular_velocity.y * imu_data.angular_velocity.y);
@@ -362,8 +362,8 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         //Calculate the point's pose.
         double dyaw_l_angle = 0, dpitch_l_angle = 0;
         //If it's the first point in a frame, integral from the feedback.
-        dyaw_l_angle = angle_integral(imu_ang_v, it_h_ang->first, point_time, 3);
-        dpitch_l_angle = angle_integral(imu_ang_v, it_v_ang->first, point_time, 2);
+        dyaw_l_angle = angle_integral(imu_ang_v, it_v_ang->first, point_time, 3);
+        dpitch_l_angle = angle_integral(imu_ang_v, it_h_ang->first, point_time, 2);
         // std::cout << "(" << dpitch_angle / M_PI * 180.0 << "," << dyaw_angle / M_PI * 180.0 << ")" << std::endl;
         // if (dpitch_angle < 0)
         //   std::cout << --imu_ang_v.lower_bound(point_time)->second.ang_v_y << std::endl;
