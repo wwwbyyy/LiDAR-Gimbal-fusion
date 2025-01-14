@@ -11,7 +11,7 @@
 
 #define read_buffer_size 7
 
-const float tilt_zero_deg = -24; // the realistic zero degree of tilt
+const float tilt_zero_deg = -3; // the realistic zero degree of tilt
 
 typedef enum command
 {
@@ -69,7 +69,7 @@ std::pair<uint8_t, uint8_t> position_to_data(uint8_t cmd, float position)
     uint16_t pos; 
     if (cmd == PAN)
     {
-        position = normalize_angle_pan(position);  // 将角度映射到0-360度范围内
+        position = normalize_angle_pan(-position);  // 将角度映射到0-360度范围内
         pos = static_cast<uint16_t>(position * 100.0);
     }
     else if (cmd == TILT)
@@ -198,7 +198,7 @@ void read_from_serial_port(serial::Serial& serial_port)
         feedback_msg.data.push_back(current_time);
         if (feedback_data[3] - 0x08 == ASKPAN)
         {
-            feedback_msg.data.push_back(position);
+            feedback_msg.data.push_back(-position);
             pan_pub.publish(feedback_msg);
         }
         else if (feedback_data[3] - 0x08 == ASKTILT)
@@ -265,7 +265,7 @@ int main(int argc, char **argv) {
     command.resize(7);
 
     // 复位
-    command = pelco_d_command(TILT, 0);
+    command = pelco_d_command(TILT, -20);
     my_serial.write(command);
     ros::Duration(0.5).sleep();
     command = pelco_d_command(PAN, 0);
@@ -310,7 +310,7 @@ int main(int argc, char **argv) {
 
         if (ctrl == 0)
         {
-            command = pelco_d_command(RIGHT, 1);
+            command = pelco_d_command(RIGHT, 60);
             ctrl = 1;
         }
         else if (ctrl == 1)
