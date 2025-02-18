@@ -326,9 +326,16 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   int frame_point_idx = std::round((frame_time - point_time_start) / frame_T) * frame_point_num;
   int point_idx = frame_point_idx;
   double point_time = frame_time;
+  int valid_point_count = 0;
+  for (const auto& point : p_cloud->points) {
+    if (is_point_valid(point)) {
+      valid_point_count++;
+    }
+  }
 
   //std::cout << "Point time:" << point_time << std::endl;
   ROS_INFO_STREAM("Point time:" << std::fixed << std::setprecision(9) << point_time);
+  std::cout << "Valid point count:" << valid_point_count << std::endl;
 
   map_mtx.lock();
   //Get the frame's initial pose by feedback.
@@ -345,7 +352,8 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   map_mtx.unlock();
 
   CloudType::Ptr p_cloud_out(new CloudType);
-  p_cloud_out->resize(p_cloud->size());
+  p_cloud_out->resize(p_cloud->size());\
+  int interval = std::floor(frame_point_num / cfg.frame_process_num);
   switch (cfg.overlap_mode)
   {
     case STATIC_MODE:
@@ -353,48 +361,32 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
       point_time += frame_T;
       break;
     case DYNAMIC_MODE:
-      for (int i = 0; i < cfg.frame_process_num; i++)
+      #pragma omp parallel for
+      for (int i = 0; i < interval * cfg.frame_process_num; i+=interval)
       {
-        point_idx = frame_point_idx + i;
+        if (!is_point_valid(p_cloud->points[i]))
+          continue;
+        int point_idx = frame_point_idx + i;
         //Get the point's time.
-        point_time = point_time_start + point_idx * Avia_dt;    
+        double point_time = point_time_start + point_idx * Avia_dt;    
         
         //Calculate the point's pose.
         double dyaw_l_angle = 0, dpitch_l_angle = 0;
         //If it's the first point in a frame, integral from the feedback.
         dyaw_l_angle = angle_integral(imu_ang_v, it_v_ang->first, point_time, 3);
         dpitch_l_angle = angle_integral(imu_ang_v, it_h_ang->first, point_time, 2);
-        // std::cout << "(" << dpitch_angle / M_PI * 180.0 << "," << dyaw_angle / M_PI * 180.0 << ")" << std::endl;
-        // if (dpitch_angle < 0)
-        //   std::cout << --imu_ang_v.lower_bound(point_time)->second.ang_v_y << std::endl;
-        // if (std::abs(it_h_ang->second + dyaw_angle - gimbal_horizontal_angle.value) > 0.05)
-        // {
-        //   std::cout << "Map time: " << std::fixed << std::setprecision(9) << it_h_ang->first << ", " << "Gimbal time: " << gimbal_horizontal_angle.header.stamp.toSec() << std::endl;
-        //   std::cout << it_h_ang->second + dyaw_angle << ", " << gimbal_horizontal_angle.value << std::endl; 
-        // }
-        // if (std::abs(it_v_ang->second + dpitch_angle - gimbal_vertical_angle.value) > 0.05)
-        // {
-        //   std::cout << "Map time: " << std::fixed << std::setprecision(9) << it_v_ang->first << ", " << "Gimbal time: " << gimbal_vertical_angle.header.stamp.toSec() << std::endl;
-        //   std::cout << it_v_ang->second + dpitch_angle << ", " << gimbal_vertical_angle.value << std::endl; 
-        // }
         Eigen::Matrix3f yaw_l_pt = Eigen::AngleAxisf(-minus_yaw_l_angle + dyaw_l_angle, Eigen::Vector3f::UnitZ()).toRotationMatrix();
         Eigen::Matrix3f pitch_l_pt = Eigen::AngleAxisf(pitch_l_angle + dpitch_l_angle, Eigen::Vector3f::UnitY()).toRotationMatrix();
+        Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
         pose.topLeftCorner<3, 3>() = init_rotation * pitch_l_pt * yaw_l_pt;
         Eigen::Vector3f translation = pose.topLeftCorner<3, 3>() * init_translation;
         pose.topRightCorner<3, 1>() = translation;
 
-        // if (dpitch_angle !=0 || dyaw_angle != 0)
-        //   std::cout << "(" << dpitch_angle / M_PI * 180.0 << "," << dyaw_angle / M_PI * 180.0 << ")" << std::endl;
-
         //Calculate the point's position.
-        if (is_point_valid(p_cloud->points[i]))
-        {
-          PointType pt;
-          pt.getVector4fMap() = pose * p_cloud->points[i].getVector4fMap(); 
-          pt.intensity = p_cloud->points[i].intensity;
-          p_cloud_out->points[i] = pt;
-        }
-
+        PointType pt;
+        pt.getVector4fMap() = pose * p_cloud->points[i].getVector4fMap(); 
+        pt.intensity = p_cloud->points[i].intensity;
+        p_cloud_out->points[i] = pt;
       }
       break;
     default:
