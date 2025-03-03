@@ -1,0 +1,4 @@
+<launch>
+    <!-- Launch the lidar node -->
+    <node pkg="lidar" type="lidar_node" name="lidar_node" output="screen"/>
+</launch>

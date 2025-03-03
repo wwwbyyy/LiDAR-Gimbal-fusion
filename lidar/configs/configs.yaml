@@ -1,11 +1,29 @@
 #STATIC_MODE: 0, DYNAMIC_MODE: 1
 overlap_mode: 1
-
 voxel_leaf: 0.1
+total_time_s: 5.0
+wait_time_s: 5.0
+frame_process_num: 12000
+is_save_cloud: true
 
-total_time_s: 8.0
-wait_time_s: 0.0
+map_path: /home/wuby/localization/Servo-Lidar-Loclization/data/para1.ply
+map_voxel_leaf: 0.1
+normal_estimate_radius: 0.2
+local_range: 200
+update_range: 50
+points_interval: 1
 
-frame_process_num: 2000
+### 6 elements: Translation + Euler(x,y,z)
+### 7 elements: Translation + Quaternion(x,y,z,w)
+initialpose: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
+icp:
+  voxel_leaf:     0.5
+  iterations:     20
+  distance_thres: 5.0
+  planefit_thres: 0.2
+  robust_kernel:  0.1
+  translation_epsilon: 0.01
+  rotation_epsilon: 0.001
+  min_points_per_frame: 100
 #frame_skip_num: 4
