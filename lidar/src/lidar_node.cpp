@@ -680,10 +680,16 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         pose.topRightCorner<3, 1>() = translation;
 
         //Calculate the point's position.
-        PointType pt;
-        pt.getVector4fMap() = pose * p_cloud->points[i].getVector4fMap(); 
-        pt.intensity = p_cloud->points[i].intensity;
-        p_cloud_out->points[i] = pt;
+        for (int j = 0; j < interval && i+j<interval*cfg.frame_process_num; j++)
+        {
+          int idx = i + j;
+          if (!is_point_valid(p_cloud->points[idx]))
+            continue;
+          PointType pt;
+          pt.getVector4fMap() = pose * p_cloud->points[idx].getVector4fMap(); 
+          pt.intensity = p_cloud->points[idx].intensity;
+          p_cloud_out->points[idx] = pt;
+        }
       }
       break;
     default:
