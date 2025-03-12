@@ -110,55 +110,6 @@ class TimestampConverter{
     }
 };
 
-class ICPNavigation
-{
-public:
-    using PointType = pcl::PointXYZI;
-    using CloudType = pcl::PointCloud<PointType>;
-    using CloudTypePtr = CloudType::Ptr;
-
-private:
-    CloudTypePtr source_cloud_ptr;
-    Eigen::Matrix4f this_transformation;
-    Eigen::Matrix4f prev_transformation;
-    double prev_frame_time;
-    double this_frame_time;
-
-public:
-    ICPNavigation(Eigen::Matrix4f initial_transformation = Eigen::Matrix4f::Identity())
-        : this_transformation(initial_transformation), 
-        prev_transformation(initial_transformation), 
-        source_cloud_ptr(new CloudType),
-        prev_frame_time(0), this_frame_time(0)
-    {};
-
-    /**
-     * @brief Register the current frame to the map.
-     * @param map_cloud_ptr The map point cloud.
-     * @param frame_time The timestamp of the current frame.
-     * @return The transformation matrix of the current frame.
-    */
-    Eigen::Matrix4f registration1frame(const CloudTypePtr& map_cloud_ptr, double frame_time);
-
-    //Get the transformation matrix of the current frame.
-    Eigen::Matrix4f get_transformation() const { return this_transformation; }
-
-    void update_variables()
-    {
-        prev_transformation = this_transformation;
-        prev_frame_time = this_frame_time;
-    }
-
-    void set_source_cloud(const CloudTypePtr& source_cloud) 
-    { source_cloud_ptr = source_cloud; }
-
-    void set_initial_transformation(const Eigen::Matrix4f& initial_transformation)
-    { 
-      this_transformation = initial_transformation; 
-      prev_transformation = initial_transformation;
-    }
-};
-
 struct AngV{
   double ang_v_x;
   double ang_v_y;
@@ -215,8 +166,6 @@ ros::Subscriber gnss_sub;
 ros::Subscriber car_imu_sub;
 
 ros::Publisher cloud_pub;
-ros::Publisher pose_pub;
-ros::Publisher pose_c_pub;
 
 using PointType = pcl::PointXYZI;
 using CloudType = pcl::PointCloud<PointType>;
@@ -228,8 +177,6 @@ CloudType::Ptr p_map;
 pcl::search::Search<PointType>::Ptr p_global_search;
 pcl::search::Search<PointType>::Ptr p_local_search;
 std::vector<std::vector<std::array<float, 2>>> slam_areas;
-
-ICPNavigation icp_nav;
 
 gimbal::TimestampFloat gimbal_horizontal_angle;
 gimbal::TimestampFloat gimbal_vertical_angle;
@@ -251,7 +198,7 @@ const double Avia_dt = 4.0 / 960000;
 const double frame_T = 0.1;
 const int frame_point_num = 24000;
 double start_timestamp = 0.0;  // Will be set to ros::Time::now().toSec() in main()
-const Eigen::Matrix3f car2gimbal = (Eigen::AngleAxisf(-M_PI * 150/180, Eigen::Vector3f::UnitZ()) * Eigen::AngleAxisf(-M_PI*2.40/180, Eigen::Vector3f::UnitY()) * Eigen::AngleAxisf(-M_PI*3.75/180, Eigen::Vector3f::UnitX())).toRotationMatrix();
+const Eigen::Matrix3f car2gimbal = (Eigen::AngleAxisf(-M_PI * 145.5/180, Eigen::Vector3f::UnitZ()) * Eigen::AngleAxisf(-M_PI*3.1/180, Eigen::Vector3f::UnitY()) * Eigen::AngleAxisf(-M_PI*3.5/180, Eigen::Vector3f::UnitX())).toRotationMatrix();
 //const double end_time_329 = 366099597000 / 1e9;
 
 CloudType::Ptr p_cloud_complete(new CloudType);
@@ -264,206 +211,6 @@ Eigen::Vector3f trans_c;
 bool is_point_valid(const PointType& pt)
 {
   return pt.x != 0;
-}
-
-bool is_in_polygon(const std::vector<std::array<float, 2>> &polygon, float px, float py)
-{
-  bool flag = false;
-  for (std::size_t i = 0; i + 1 < polygon.size(); i++)
-  {
-    float sx = polygon[i][0];
-    float sy = polygon[i][1];
-    float tx = polygon[i + 1][0];
-    float ty = polygon[i + 1][1];
-    if ((sx == px && sy == py) || (tx == px && ty == py))
-      return true;
-    if ((sy < py && ty >= py) || (sy >= py && ty < py))
-    {
-      float x = sx + (py - sy) * (tx - sx) / (ty - sy);
-      if (x == px)
-        return true;
-      if (x > px)
-        flag = !flag;
-    }
-  }
-  return flag;
-}
-
-bool is_in_slamareas(float px, float py)
-{
-  return true;
-  for (auto &area : slam_areas)
-  {
-    if (is_in_polygon(area, px, py))
-      return true;
-  }
-  return false;
-}
-
-Eigen::Matrix4f ICPNavigation::registration1frame(const CloudTypePtr& map_cloud_ptr, double frame_time)
-{
-  update_variables();
-  pcl::search::Search<PointType>::Ptr p_local_search_locked;
-  {
-    std::unique_lock lock(map_mtx);
-    p_local_search_locked = p_local_search;
-  }
-  if (p_local_search_locked == nullptr)
-  {
-    std::cout << "p_local_search_locked is nullptr..." << std::endl;
-    return Eigen::Matrix4f::Zero();
-  }
-  if (!is_in_slamareas(prev_transformation(0, 3), prev_transformation(1, 3)))
-  {
-    std::cout << "waiting initialpose..." << std::endl;
-    return Eigen::Matrix4f::Zero();
-  }
-  PROFILER(registration1frame);
-  profiler_registration1frame.start();
-  CloudType::Ptr p_cloud = source_cloud_ptr;
-  //pcl::moveFromROSMsg(*p_msg, (*p_cloud));
-
-  pcl::UniformSampling<PointType> voxel;
-  voxel.setInputCloud(p_cloud);
-  voxel.setRadiusSearch(cfg.icp.voxel_leaf);
-  voxel.filter(*p_cloud);
-
-  Eigen::MatrixXf A_full(p_cloud->size(), 6);
-  Eigen::MatrixXf b_full(p_cloud->size(), 1);
-  std::vector<uint8_t> enables(p_cloud->size());
-
-  Eigen::Matrix4f pose = prev_transformation;
-
-  for (int iter = 0; iter < cfg.icp.iterations; iter++)
-  {
-    std::fill(enables.begin(), enables.end(), 0);
-
-    int points_num = 0;
-//#pragma omp parallel for schedule(runtime) shared(points_num)
-    for (int i = cfg.points_interval * iter / cfg.icp.iterations; i < p_cloud->size(); i += cfg.points_interval)
-    {
-      const PointType &pt_b = p_cloud->points[i];
-      PointType pt_w;
-      pt_w.getVector4fMap() = pose * pt_b.getVector4fMap();
-
-      std::vector<int> k_indices;
-      std::vector<float> k_distances;
-      p_local_search_locked->nearestKSearch(pt_w, 1, k_indices, k_distances);
-      auto nearestpoint = p_map->points[k_indices[0]];//test
-      if (k_distances.empty() || k_distances[0] > cfg.icp.distance_thres){
-        continue;
-      }
-      Eigen::Vector4f plane = p_map_normal->points[k_indices[0]].getNormalVector4fMap();
-      if (plane.hasNaN()){
-        continue;
-      }
-
-      const auto &p = pt_b.getVector4fMap();
-      Eigen::Vector4f n = pose.transpose() * plane;
-
-      int locked_num = i;
-//#pragma omp atomic capture
-      locked_num = points_num++;
-
-      float e = std::abs(p.dot(n));
-      float c = 1 / (1 + e * cfg.icp.robust_kernel);
-      A_full(locked_num, 0) = (p.y() * n.z() - p.z() * n.y()) * c;
-      A_full(locked_num, 1) = (p.z() * n.x() - p.x() * n.z()) * c;
-      A_full(locked_num, 2) = (p.x() * n.y() - p.y() * n.x()) * c;
-      A_full(locked_num, 3) = n.x() * c;
-      A_full(locked_num, 4) = n.y() * c;
-      A_full(locked_num, 5) = n.z() * c;
-      b_full(locked_num, 0) = (-n.w() - p.x() * n.x() - p.y() * n.y() - p.z() * n.z()) * c;
-
-      // enables[i] = 1;
-    }
-
-    // for(int i = 0; i < p_cloud->size(); i++) {
-    //   if(!enables[i]) continue;
-    //   A_full.row(points_num) = A_full.row(i);
-    //   b_full.row(points_num) = b_full.row(i);
-    //   points_num++;
-    // }
-    if (points_num < cfg.icp.min_points_per_frame)
-    {
-      std::cout << "No enough points for registration." << std::endl;
-      break;
-    }
-    auto A = A_full.topRows(points_num);
-    auto b = b_full.topRows(points_num);
-    Eigen::Matrix<float, 6, 1> x =
-        A.bdcSvd(Eigen::ComputeThinU | Eigen::ComputeThinV).solve(b);
-
-    float theta = x.topRows<3>().norm();
-    Eigen::Vector3f n = x.topRows<3>() / theta;
-    Eigen::Matrix3f n_hat;
-    n_hat << 0, -n[2], n[1], n[2], 0, -n[0], -n[1], n[0], 0;
-    Eigen::Matrix4f deltaT = Eigen::Matrix4f::Identity();
-    deltaT.topLeftCorner<3, 3>() = cos(theta) * Eigen::Matrix3f::Identity() +
-                                   (1 - cos(theta)) * n * n.transpose() +
-                                   sin(theta) * n_hat;
-    deltaT.topRightCorner<3, 1>() = x.bottomRows<3>();
-
-    std::unique_lock lock(map_mtx);
-    pose = pose * deltaT;
-    lock.unlock();
-
-    if (std::abs(theta) < cfg.icp.rotation_epsilon &&
-        x.bottomRows<3>().norm() < cfg.icp.translation_epsilon)
-      break;
-  }
-  this_transformation = pose;
-  this_frame_time = frame_time;
-  profiler_registration1frame.stop();
-
-  return this_transformation;
-}
-
-void local_map_update(const std::atomic_bool &require_stop = false)
-{
-  Eigen::Vector3f trans{1e11, 1e11, 1e11};
-  pcl::search::Search<PointType>::Ptr p_new_local_search;
-  while (!require_stop)
-  {
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    PointType pt;
-    std::unique_lock lock(map_mtx);
-    Eigen::Matrix4f pose = icp_nav.get_transformation();
-    pt.x = pose(0, 3);
-    pt.y = pose(1, 3);
-    pt.z = pose(2, 3);
-    lock.unlock();
-    if ((trans - pt.getVector3fMap()).norm() < cfg.update_range)
-    {
-      continue;
-    }
-    trans = pt.getVector3fMap();
-
-    std::cout << "updating local map..." << std::endl;
-    boost::shared_ptr<std::vector<int>> p_indices(new std::vector<int>);
-    std::vector<float> unused;
-    p_global_search->radiusSearch(pt, cfg.local_range, *p_indices, unused);
-
-    p_new_local_search.reset(new pcl::search::KdTree<PointType>);
-    p_new_local_search->setInputCloud(p_map, p_indices);
-    p_new_local_search->setSortedResults(true);
-
-    lock.lock();
-    p_local_search = std::move(p_new_local_search);
-    lock.unlock();
-
-    std::cout << "local map updated! (points_num: " << p_indices->size() << ")" << std::endl;
-
-    // if (map_pub.getNumSubscribers() > 0)
-    // {
-    //   sensor_msgs::PointCloud2 map_msg;
-    //   CloudType local_map;
-    //   pcl::copyPointCloud(*p_map, *p_indices, local_map);
-    //   pcl::toROSMsg(local_map, map_msg);
-    //   map_msg.header.frame_id = "map";
-    //   map_pub.publish(map_msg);
-    // }
-  }
 }
 
 /**
@@ -587,15 +334,24 @@ void gnss_callback(sensor_msgs::NavSatFix gps_msg)
   double x_w_now = utm_point.easting - 351425.09269358893;
   double y_w_now = utm_point.northing - 3433830.3251591502;
   trans_c = Eigen::Vector3f(x_w_now, y_w_now, 0);
+  double delta_t = timestamp_now - last_timestamp;
   if (is_init)
   {
-    double delta_t = timestamp_now - last_timestamp;
+    if (delta_t < 1e-2)
+      return;
     v_w = Eigen::Vector3f((x_w_now - last_x_w)/delta_t, (y_w_now - last_y_w)/delta_t, 0);
     last_timestamp = timestamp_now;
     last_x_w = x_w_now;
     last_y_w = y_w_now;
   }
   is_init = true;
+  if (v_w.norm() > 100)
+  {
+    std::cout << "x_w_now: " << x_w_now << ", y_w_now: " << y_w_now << std::endl;
+    std::cout << "last_x_w: " << last_x_w << ", last_y_w: " << last_y_w << std::endl;
+    std::cout << "last_timestamp: " << std::fixed << std::setprecision(9) << last_timestamp << std::endl;
+    std::cout << "timestamp_now: " << std::fixed << std::setprecision(9) << timestamp_now << std::endl;
+  }
 }
 
 void car_imu_callback(sensor_msgs::Imu imu_data)
@@ -764,21 +520,6 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   msg_out.header.frame_id = "map";
   cloud_pub.publish(msg_out);
 
-  // icp_nav.set_source_cloud(p_cloud_out);
-  // Eigen::Matrix4f frame_pose = icp_nav.registration1frame(p_map, frame_time);
-
-  // geometry_msgs::PoseStamped pose_msg;
-  // pose_msg.header.stamp.fromSec(frame_time);
-  // pose_msg.pose.position.x = frame_pose(0, 3);
-  // pose_msg.pose.position.y = frame_pose(1, 3);
-  // pose_msg.pose.position.z = frame_pose(2, 3);
-  // Eigen::Quaternionf q(pose.topLeftCorner<3, 3>());
-  // pose_msg.pose.orientation.x = q.x();
-  // pose_msg.pose.orientation.y = q.y();
-  // pose_msg.pose.orientation.z = q.z();
-  // pose_msg.pose.orientation.w = q.w();
-  // pose_pub.publish(pose_msg);
-
   static bool is_save = !cfg.is_save_cloud;//the '!' is right, but need some time to understand.
   if (!is_save)
     *p_cloud_complete += *p_cloud_out;
@@ -843,49 +584,6 @@ int main(int argc, char **argv)
   // cfg.wait_time_s = 10.0;
   ROS_INFO_STREAM("\033[92m" << "Configs Loaded" << "\033[0m");
 
-  // load point cloud
-  p_map.reset(new CloudType);
-  std::cout << "loading map..." << std::endl;
-  pcl::io::load(cfg.map_path, *p_map);
-  ROS_INFO_STREAM("\033[92m" << "Map point Cloud Loaded" << "\033[0m");
-
-  /*-------------------------------------------------*\
-  |	Initialize Pose                          		      |
-  \*-------------------------------------------------*/
-  #pragma region
-    Eigen::Matrix4f init_pose = Eigen::Matrix4f::Identity();
-    if (cfg.initialpose.size() == 6)
-    {
-      init_pose.topRightCorner<3, 1>().x() = cfg.initialpose[0];
-      init_pose.topRightCorner<3, 1>().y() = cfg.initialpose[1];
-      init_pose.topRightCorner<3, 1>().z() = cfg.initialpose[2];
-      init_pose.topLeftCorner<3, 3>() =
-          (Eigen::AngleAxisf(cfg.initialpose[3], Eigen::Vector3f::UnitX()) *
-          Eigen::AngleAxisf(cfg.initialpose[4], Eigen::Vector3f::UnitY()) *
-          Eigen::AngleAxisf(cfg.initialpose[5], Eigen::Vector3f::UnitZ()))
-              .matrix();
-      // pose = pose.inverse();
-    }
-    else if (cfg.initialpose.size() == 7)
-    {
-      init_pose.topRightCorner<3, 1>().x() = cfg.initialpose[0];
-      init_pose.topRightCorner<3, 1>().y() = cfg.initialpose[1];
-      init_pose.topRightCorner<3, 1>().z() = cfg.initialpose[2];
-      Eigen::Quaternionf q;
-      q.coeffs().x() = cfg.initialpose[3];
-      q.coeffs().y() = cfg.initialpose[4];
-      q.coeffs().z() = cfg.initialpose[5];
-      q.coeffs().w() = cfg.initialpose[6];
-      init_pose.topLeftCorner<3, 3>() = q.matrix();
-    }
-    else
-    {
-      std::cerr << "unknown initialpose type (initialpose.size() == " << cfg.initialpose.size() << ")" << std::endl;
-      return -1;
-    }
-    icp_nav.set_initial_transformation(init_pose);
-  #pragma endregion
-
   imu_sub = nh.subscribe("/livox/imu", 1, &imu_callback);
   cloud_sub = nh.subscribe("/livox/lidar", 1, &pointcloud2_callback);
   // gimbal_sub_h = nh.subscribe("/horizontal_angle", 1, &gimbal_horizontal_callback);
@@ -896,39 +594,6 @@ int main(int argc, char **argv)
   car_imu_sub = nh.subscribe("/Inertial/imu/data", 1, &car_imu_callback);
 
   cloud_pub = nh.advertise<sensor_msgs::PointCloud2>("/registered_cloud", 1);
-  pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/pose", 1);
-
-  /*Map initialization*/
-  #pragma region
-  pcl::UniformSampling<PointType> voxel;
-  voxel.setInputCloud(p_map);
-  voxel.setRadiusSearch(cfg.map_voxel_leaf);
-  voxel.filter(*p_map);
-
-  p_global_search.reset(new pcl::search::KdTree<PointType>);
-  p_global_search->setInputCloud(p_map);
-
-  p_map_normal.reset(new pcl::PointCloud<pcl::Normal>);
-  pcl::NormalEstimationOMP<PointType, pcl::Normal> ne;
-  ne.setInputCloud(p_map);
-  ne.setRadiusSearch(cfg.normal_estimate_radius);
-  // ne.setNumberOfThreads(4);
-  // pcl::search::KdTree<pcl::PointXYZ>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZ>());
-  // ne.setSearchMethod(tree);
-  ne.compute(*p_map_normal);
-  for (int i = 0; i < p_map->size(); i++)
-  {
-    auto &n = p_map_normal->points[i];
-    const auto &p = p_map->points[i];
-    n.getNormalVector3fMap() /= n.getNormalVector3fMap().norm();
-    n.data_n[3] = -n.getNormalVector3fMap().dot(p.getVector3fMap());
-  }
-
-  std::cout << "map initialized!" << std::endl;
-
-  std::atomic_bool local_map_thread_require_stop = false;
-  std::thread local_map_thread(&local_map_update, std::ref(local_map_thread_require_stop));
-  #pragma endregion
 
   ros::spin();
 
