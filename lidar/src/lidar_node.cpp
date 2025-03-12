@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <vector>
 #include <thread>
@@ -12,7 +13,10 @@
 #include <Eigen/Dense>
 //#include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <visualization_msgs/MarkerArray.h>
+#include <geodesy/utm.h>
+#include <geodesy/wgs84.h>
 #include <geometry_msgs/PoseStamped.h>
+#include <geographic_msgs/GeoPointStamped.h>
 #include <sensor_msgs/NavSatFix.h>
 #include <sensor_msgs/Imu.h>
 #include <std_msgs/Float32MultiArray.h>
@@ -207,9 +211,12 @@ ros::Subscriber cloud_sub;
 ros::Subscriber imu_sub;
 ros::Subscriber gimbal_sub_pan;
 ros::Subscriber gimbal_sub_tilt;
+ros::Subscriber gnss_sub;
+ros::Subscriber car_imu_sub;
 
 ros::Publisher cloud_pub;
 ros::Publisher pose_pub;
+ros::Publisher pose_c_pub;
 
 using PointType = pcl::PointXYZI;
 using CloudType = pcl::PointCloud<PointType>;
@@ -232,6 +239,7 @@ bool gimbal_inited_v = false;
 std::map<double, AngV> imu_ang_v;
 std::map<double, float> h_ang_map;
 std::map<double, float> v_ang_map;
+std::map<double, Eigen::Quaternionf> q_rot_c_map;
 
 // const double start_time_172 = 1723625932.263;
 // const double start_time_329 = 329099317000 / 1e9;
@@ -243,10 +251,15 @@ const double Avia_dt = 4.0 / 960000;
 const double frame_T = 0.1;
 const int frame_point_num = 24000;
 double start_timestamp = 0.0;  // Will be set to ros::Time::now().toSec() in main()
-TimestampConverter t_cvter;
+const Eigen::Matrix3f car2gimbal = (Eigen::AngleAxisf(-M_PI * 150/180, Eigen::Vector3f::UnitZ()) * Eigen::AngleAxisf(-M_PI*2.40/180, Eigen::Vector3f::UnitY()) * Eigen::AngleAxisf(-M_PI*3.75/180, Eigen::Vector3f::UnitX())).toRotationMatrix();
 //const double end_time_329 = 366099597000 / 1e9;
 
 CloudType::Ptr p_cloud_complete(new CloudType);
+TimestampConverter t_cvter;
+Eigen::Vector3f v_w, v_g;
+Eigen::Vector3f omega_c, omega_g;
+Eigen::Matrix3f rot_c, rot_g;
+Eigen::Vector3f trans_c;
 
 bool is_point_valid(const PointType& pt)
 {
@@ -558,24 +571,61 @@ double angle_integral(const std::map<double, AngV>& imu_ang_v, double start_time
   return angle_change; // 返回在时间区间内转过的总角度
 }
 
-void gimbal_pan_callback(std_msgs::Float64MultiArray msg)
+void gnss_callback(sensor_msgs::NavSatFix gps_msg)
+{
+  static bool is_init = false;
+  static double last_timestamp = 0.0, last_x_w = 0.0, last_y_w = 0.0;
+  geographic_msgs::GeoPointStampedPtr geo_msg(new geographic_msgs::GeoPointStamped());
+  geo_msg->header = gps_msg.header;
+  geo_msg->position.latitude = gps_msg.latitude;
+  geo_msg->position.longitude = gps_msg.longitude;
+  geo_msg->position.altitude = gps_msg.altitude;
+
+  geodesy::UTMPoint utm_point;
+  geodesy::fromMsg(geo_msg->position, utm_point);
+  double timestamp_now = gps_msg.header.stamp.toSec();
+  double x_w_now = utm_point.easting - 351425.09269358893;
+  double y_w_now = utm_point.northing - 3433830.3251591502;
+  trans_c = Eigen::Vector3f(x_w_now, y_w_now, 0);
+  if (is_init)
+  {
+    double delta_t = timestamp_now - last_timestamp;
+    v_w = Eigen::Vector3f((x_w_now - last_x_w)/delta_t, (y_w_now - last_y_w)/delta_t, 0);
+    last_timestamp = timestamp_now;
+    last_x_w = x_w_now;
+    last_y_w = y_w_now;
+  }
+  is_init = true;
+}
+
+void car_imu_callback(sensor_msgs::Imu imu_data)
+{
+  t_cvter.get_offset("car_stamp", ros::Time::now(), imu_data.header.stamp.toSec());
+  Eigen::Quaternionf q_rot_c(imu_data.orientation.w, imu_data.orientation.x, imu_data.orientation.y, imu_data.orientation.z);
+  q_rot_c_map[t_cvter.convert("car_stamp", "ros_stamp", imu_data.header.stamp.toSec())] = q_rot_c;
+  // rot_c = Eigen::Quaternionf(imu_data.orientation.w, imu_data.orientation.x, imu_data.orientation.y, imu_data.orientation.z).toRotationMatrix();
+  // rot_g = car2gimbal * rot_c;
+  omega_c = Eigen::Vector3f(imu_data.angular_velocity.x, imu_data.angular_velocity.y, imu_data.angular_velocity.z);
+}
+
+void gimbal_pan_callback(std_msgs::Float32MultiArray msg)
 {
   t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
   gimbal_horizontal_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
   // gimbal_horizontal_angle.header.stamp.fromSec(msg.data[0]);
-  gimbal_horizontal_angle.value = msg.data[1] * M_PIq / 180.0;
+  gimbal_horizontal_angle.value = -msg.data[1] * M_PIq / 180.0;
   gimbal_inited_h = true;
   h_ang_map[gimbal_horizontal_angle.header.stamp.toSec()] = gimbal_horizontal_angle.value;
 }
 
-void gimbal_tilt_callback(std_msgs::Float64MultiArray msg)
+void gimbal_tilt_callback(std_msgs::Float32MultiArray msg)
 {
   t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
   gimbal_vertical_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
   // gimbal_vertical_angle.header.stamp.fromSec(msg.data[0]);
   // ROS_INFO_STREAM("msg_time:" << std::fixed << std::setprecision(9) << msg.data[0]);
   // ROS_INFO_STREAM("Gimbal time:" << std::fixed << std::setprecision(9) << gimbal_vertical_angle.header.stamp.toSec());
-  gimbal_vertical_angle.value = msg.data[1] * M_PIq / 180.0;
+  gimbal_vertical_angle.value = (msg.data[1]-(-3)) * M_PIq / 180.0;
   gimbal_inited_v = true;
   v_ang_map[gimbal_vertical_angle.header.stamp.toSec()] = gimbal_vertical_angle.value;
 }
@@ -595,7 +645,7 @@ void imu_callback(sensor_msgs::Imu imu_data)
     ang_v_y,
     imu_data.angular_velocity.z
   };
-  imu_ang_v[ros::Time::now().toSec()] = ang_v_tmp;
+  imu_ang_v[t_cvter.convert("Avia_stamp", "ros_stamp", imu_data.header.stamp.toSec())] = ang_v_tmp;
 }
 
 void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
@@ -649,7 +699,7 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   map_mtx.unlock();
 
   CloudType::Ptr p_cloud_out(new CloudType);
-  p_cloud_out->resize(p_cloud->size());\
+  p_cloud_out->resize(p_cloud->size());
   int interval = std::floor(frame_point_num / cfg.frame_process_num);
   switch (cfg.overlap_mode)
   {
@@ -671,11 +721,13 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         double dyaw_l_angle = 0, dpitch_l_angle = 0;
         //If it's the first point in a frame, integral from the feedback.
         dyaw_l_angle = angle_integral(imu_ang_v, it_v_ang->first, point_time, 3);
-        dpitch_l_angle = angle_integral(imu_ang_v, it_h_ang->first, point_time, 2);
+        dpitch_l_angle = angle_integral(imu_ang_v, it_h_ang->first, point_time, 2) - omega_c.z() * (frame_time - it_h_ang->first);
         Eigen::Matrix3f yaw_l_pt = Eigen::AngleAxisf(-minus_yaw_l_angle + dyaw_l_angle, Eigen::Vector3f::UnitZ()).toRotationMatrix();
         Eigen::Matrix3f pitch_l_pt = Eigen::AngleAxisf(pitch_l_angle + dpitch_l_angle, Eigen::Vector3f::UnitY()).toRotationMatrix();
         Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
         pose.topLeftCorner<3, 3>() = init_rotation * pitch_l_pt * yaw_l_pt;
+        rot_c = q_rot_c_map.lower_bound(point_time)->second.toRotationMatrix();
+        v_g = car2gimbal * rot_c * v_w;
         Eigen::Vector3f translation = pose.topLeftCorner<3, 3>() * init_translation;
         pose.topRightCorner<3, 1>() = translation;
 
@@ -704,28 +756,43 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   // pcl::transformPointCloud(*p_cloud_out, *p_cloud_out, align_pose);
 
   sensor_msgs::PointCloud2 msg_out;
+  Eigen::Matrix4f real_pose = Eigen::Matrix4f::Identity();
+  real_pose.topLeftCorner<3, 3>() = car2gimbal *  q_rot_c_map.lower_bound(frame_time)->second.toRotationMatrix();
+  real_pose.topRightCorner<3, 1>() = trans_c;
+  pcl::transformPointCloud(*p_cloud_out, *p_cloud_out, real_pose);
   pcl::toROSMsg(*p_cloud_out, msg_out);
   msg_out.header.frame_id = "map";
   cloud_pub.publish(msg_out);
 
-  icp_nav.set_source_cloud(p_cloud_out);
-  Eigen::Matrix4f frame_pose = icp_nav.registration1frame(p_map, frame_time);
+  // icp_nav.set_source_cloud(p_cloud_out);
+  // Eigen::Matrix4f frame_pose = icp_nav.registration1frame(p_map, frame_time);
 
-  geometry_msgs::PoseStamped pose_msg;
-  pose_msg.header.stamp.fromSec(frame_time);
-  pose_msg.pose.position.x = frame_pose(0, 3);
-  pose_msg.pose.position.y = frame_pose(1, 3);
-  pose_msg.pose.position.z = frame_pose(2, 3);
-  Eigen::Quaternionf q(pose.topLeftCorner<3, 3>());
-  pose_msg.pose.orientation.x = q.x();
-  pose_msg.pose.orientation.y = q.y();
-  pose_msg.pose.orientation.z = q.z();
-  pose_msg.pose.orientation.w = q.w();
-  pose_pub.publish(pose_msg);
+  // geometry_msgs::PoseStamped pose_msg;
+  // pose_msg.header.stamp.fromSec(frame_time);
+  // pose_msg.pose.position.x = frame_pose(0, 3);
+  // pose_msg.pose.position.y = frame_pose(1, 3);
+  // pose_msg.pose.position.z = frame_pose(2, 3);
+  // Eigen::Quaternionf q(pose.topLeftCorner<3, 3>());
+  // pose_msg.pose.orientation.x = q.x();
+  // pose_msg.pose.orientation.y = q.y();
+  // pose_msg.pose.orientation.z = q.z();
+  // pose_msg.pose.orientation.w = q.w();
+  // pose_pub.publish(pose_msg);
 
   static bool is_save = !cfg.is_save_cloud;//the '!' is right, but need some time to understand.
   if (!is_save)
     *p_cloud_complete += *p_cloud_out;
+  
+  // std::stringstream ss;
+  // ss << "data/pc" << static_cast<int>(frame_time)  << ".ply";
+  // if (pcl::io::savePLYFile(ss.str(), *p_cloud_out)==0)
+  // {
+  //   ROS_INFO_STREAM("\033[92m" << "Successful to save point cloud." << "\033[0m");
+  // }
+  // else
+  // {
+  //   ROS_ERROR_STREAM("\033[91m" << "Failed to save point cloud." << "\033[0m");
+  // }
 
   if (point_time > point_time_start + cfg.total_time_s && !is_save)
   {
@@ -825,6 +892,8 @@ int main(int argc, char **argv)
   // gimbal_sub_v = nh.subscribe("/vertical_angle", 1, &gimbal_vertical_callback);
   gimbal_sub_pan = nh.subscribe("pan", 1, &gimbal_pan_callback);
   gimbal_sub_tilt = nh.subscribe("tilt", 1, &gimbal_tilt_callback);
+  gnss_sub = nh.subscribe("/Inertial/gps/fix", 1, &gnss_callback);
+  car_imu_sub = nh.subscribe("/Inertial/imu/data", 1, &car_imu_callback);
 
   cloud_pub = nh.advertise<sensor_msgs::PointCloud2>("/registered_cloud", 1);
   pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/pose", 1);

@@ -18,7 +18,7 @@ find_package(catkin REQUIRED COMPONENTS
   #geometry_msgs
   sensor_msgs
   std_msgs
-  #geodesy
+  geodesy
   #cyber_msgs
   tf2_ros
   roslib
