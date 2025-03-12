@@ -129,32 +129,11 @@ struct ProgramConfigs{
   int frame_process_num;
   bool is_save_cloud;
 
-  std::string map_path;
-  float map_voxel_leaf;
-  float normal_estimate_radius;
-  std::vector<float> initialpose;
-  float local_range;
-  float update_range;
-  int points_interval;
-  struct ICP
-  {
-    float voxel_leaf;
-    int iterations;
-    float distance_thres;
-    float planefit_thres;
-    float robust_kernel;
-    float translation_epsilon;
-    float rotation_epsilon;
-    int min_points_per_frame;
-  } icp;
+  std::vector<double> car2gimbal_transformation;
 } cfg;
 REFLCPP_METAINFO(ProgramConfigs, 
 ,(overlap_mode)(voxel_leaf)(total_time_s)(wait_time_s)(frame_process_num)
-(map_path)(map_voxel_leaf)(normal_estimate_radius)
-(initialpose)(icp)(local_range)(update_range)(points_interval)(is_save_cloud));
-REFLCPP_METAINFO(ProgramConfigs::ICP, 
-,(voxel_leaf)(iterations)(distance_thres)(planefit_thres)(robust_kernel)
-(translation_epsilon)(rotation_epsilon)(min_points_per_frame));
+(is_save_cloud)(car2gimbal_transformation));
 
 // ros::Subscriber gimbal_sub_h;
 // ros::Subscriber gimbal_sub_v;
@@ -198,7 +177,8 @@ const double Avia_dt = 4.0 / 960000;
 const double frame_T = 0.1;
 const int frame_point_num = 24000;
 double start_timestamp = 0.0;  // Will be set to ros::Time::now().toSec() in main()
-const Eigen::Matrix3f car2gimbal = (Eigen::AngleAxisf(-M_PI * 145.5/180, Eigen::Vector3f::UnitZ()) * Eigen::AngleAxisf(-M_PI*3.1/180, Eigen::Vector3f::UnitY()) * Eigen::AngleAxisf(-M_PI*3.5/180, Eigen::Vector3f::UnitX())).toRotationMatrix();
+Eigen::Matrix3f car2gimbal_rot = Eigen::Matrix3f::Identity();
+Eigen::Vector3f car2gimbal_trans = Eigen::Vector3f(0.0, 0.0, 0.0);
 //const double end_time_329 = 366099597000 / 1e9;
 
 CloudType::Ptr p_cloud_complete(new CloudType);
@@ -483,7 +463,7 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
         pose.topLeftCorner<3, 3>() = init_rotation * pitch_l_pt * yaw_l_pt;
         rot_c = q_rot_c_map.lower_bound(point_time)->second.toRotationMatrix();
-        v_g = car2gimbal * rot_c * v_w;
+        v_g = car2gimbal_rot * rot_c * v_w;
         Eigen::Vector3f translation = pose.topLeftCorner<3, 3>() * init_translation;
         pose.topRightCorner<3, 1>() = translation;
 
@@ -513,8 +493,8 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
 
   sensor_msgs::PointCloud2 msg_out;
   Eigen::Matrix4f real_pose = Eigen::Matrix4f::Identity();
-  real_pose.topLeftCorner<3, 3>() = car2gimbal *  q_rot_c_map.lower_bound(frame_time)->second.toRotationMatrix();
-  real_pose.topRightCorner<3, 1>() = trans_c;
+  real_pose.topLeftCorner<3, 3>() = car2gimbal_rot *  q_rot_c_map.lower_bound(frame_time)->second.toRotationMatrix();
+  real_pose.topRightCorner<3, 1>() = trans_c + car2gimbal_trans;
   pcl::transformPointCloud(*p_cloud_out, *p_cloud_out, real_pose);
   pcl::toROSMsg(*p_cloud_out, msg_out);
   msg_out.header.frame_id = "map";
@@ -583,6 +563,14 @@ int main(int argc, char **argv)
   // cfg.total_time_s = 30.0;
   // cfg.wait_time_s = 10.0;
   ROS_INFO_STREAM("\033[92m" << "Configs Loaded" << "\033[0m");
+
+  car2gimbal_trans = Eigen::Vector3f(
+    cfg.car2gimbal_transformation[0], 
+    cfg.car2gimbal_transformation[1], 
+    cfg.car2gimbal_transformation[2]);
+  car2gimbal_rot = Eigen::AngleAxisf(cfg.car2gimbal_transformation[3] / 180 * M_PI, Eigen::Vector3f::UnitZ()).toRotationMatrix()
+                  * Eigen::AngleAxisf(cfg.car2gimbal_transformation[4] / 180 * M_PI, Eigen::Vector3f::UnitY()).toRotationMatrix()
+                  * Eigen::AngleAxisf(cfg.car2gimbal_transformation[5] / 180 * M_PI, Eigen::Vector3f::UnitX()).toRotationMatrix();
 
   imu_sub = nh.subscribe("/livox/imu", 1, &imu_callback);
   cloud_sub = nh.subscribe("/livox/lidar", 1, &pointcloud2_callback);
