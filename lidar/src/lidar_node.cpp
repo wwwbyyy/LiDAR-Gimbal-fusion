@@ -190,9 +190,7 @@ Eigen::Vector3f trans_c;
 
 bool is_point_valid(const PointType& pt)
 {
-  if (pt.x == 0)
-    return false;
-  return pt.getVector3fMap().norm() < 1000;
+ return pt.x != 0 && pcl::isFinite(pt) && pt.getVector3fMap().norm() < 1000;
 }
 
 void rotation_integral(const std::map<double, Eigen::Vector3f>& imu_ang_v_vec, double start_time, double end_time, Eigen::Matrix3f& rot)
@@ -352,17 +350,16 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   double comp_head_time = frame_time;  
   float yaw_g_angle = it_h_ang->second - yaw_shift;
   float pitch_g_angle = it_v_ang->second - pitch_shift;
-  comp_head_time = it_h_ang->first;
-  // if (it_h_ang->first > it_v_ang->first)
-  // {
-  //   comp_head_time = it_h_ang->first;
-  //   pitch_g_angle += (it_h_ang->first - it_v_ang->first) * (it_v_ang_next->second - it_v_ang->second) / (it_v_ang_next->first - it_v_ang->first);
-  // }
-  // else
-  // {
-  //   comp_head_time = it_v_ang->first;
-  //   yaw_g_angle += (it_v_ang->first - it_h_ang->first) * (it_h_ang_next->second - it_h_ang->second) / (it_h_ang_next->first - it_h_ang->first);
-  // }
+  if (it_h_ang->first > it_v_ang->first)
+  {
+    comp_head_time = it_h_ang->first;
+    pitch_g_angle += (it_h_ang->first - it_v_ang->first) * (it_v_ang_next->second - it_v_ang->second) / (it_v_ang_next->first - it_v_ang->first);
+  }
+  else
+  {
+    comp_head_time = it_v_ang->first;
+    yaw_g_angle += (it_v_ang->first - it_h_ang->first) * (it_h_ang_next->second - it_h_ang->second) / (it_h_ang_next->first - it_h_ang->first);
+  }
 
   float &pitch_l_angle = yaw_g_angle; 
   float &minus_yaw_l_angle = pitch_g_angle;
@@ -385,26 +382,18 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
       break;
     case DYNAMIC_MODE:
       // Calculate the rotation in imu stamps.
-      // while (it_imu != imu_ang_v_vec.end() && it_imu->first <= frame_time + frame_T)
-      // {
-      //   if (it_imu == imu_ang_v_vec.begin())
-      //   {
-      //     ++it_imu;
-      //     continue;
-      //   }
-      //   double dt = (std::next(it_imu) != imu_ang_v_vec.end() && std::next(it_imu)->first <= frame_time + frame_T) ? 
-      //               std::next(it_imu)->first - it_imu->first : frame_time + frame_T - it_imu->first;
-      //   Eigen::AngleAxisf angle_axis(dt * it_imu->second.norm(), it_imu->second.normalized());
-      //   if (frame_imu_rot_map.empty())
-      //   {
-      //     Eigen::Matrix3f frame_imu_rot_0 = Eigen::Matrix3f::Identity();
-      //     rotation_integral(imu_ang_v_vec, comp_head_time, it_imu->first, frame_imu_rot_0);
-      //     frame_imu_rot_map[it_imu->first] = frame_imu_rot_0;
-      //   }
-      //   else
-      //     frame_imu_rot_map[it_imu->first] = frame_imu_rot_map.rbegin()->second * angle_axis.toRotationMatrix();
-      //   ++it_imu;
-      // }
+      while (it_imu != imu_ang_v_vec.end() && it_imu->first <= frame_time + frame_T)
+      {
+        if (it_imu == imu_ang_v_vec.begin())
+        {
+          ++it_imu;
+          continue;
+        }
+        Eigen::Matrix3f rot_imu = Eigen::Matrix3f::Identity();
+        rotation_integral(imu_ang_v_vec, comp_head_time, it_imu->first, rot_imu);
+        frame_imu_rot_map[it_imu->first] = rot_imu;
+        ++it_imu;
+      }
 
       // Calculate the rotation in lidar point stamps.
       #pragma omp parallel for
@@ -417,13 +406,12 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         double point_time = point_time_start + point_idx * Avia_dt;    
         
         //Get the point's rotation.
-        //auto it_lower_imu_rot = --frame_imu_rot_map.lower_bound(point_time);
-        //double dt = point_time - it_lower_imu_rot->first;
+        auto it_lower_imu_rot = --frame_imu_rot_map.lower_bound(point_time);
         Eigen::Matrix3f rot_delta = Eigen::Matrix3f::Identity();
-        rotation_integral(imu_ang_v_vec, comp_head_time, point_time, rot_delta);
+        rotation_integral(imu_ang_v_vec, it_lower_imu_rot->first, point_time, rot_delta);
         Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
         //pose.topLeftCorner<3, 3>() = frame_init_pose.topLeftCorner<3, 3>() * it_lower_imu_rot->second * rot_delta; 
-        pose.topLeftCorner<3, 3>() = frame_init_pose.topLeftCorner<3, 3>() * rot_delta;
+        pose.topLeftCorner<3, 3>() = frame_init_pose.topLeftCorner<3, 3>() * it_lower_imu_rot->second * rot_delta;
         Eigen::Vector3f translation = pose.topLeftCorner<3, 3>() * init_translation;
         pose.topRightCorner<3, 1>() = translation;
 
