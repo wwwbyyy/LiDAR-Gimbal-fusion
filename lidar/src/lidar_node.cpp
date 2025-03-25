@@ -162,7 +162,7 @@ gimbal::TimestampFloat gimbal_vertical_angle;
 bool gimbal_inited_h = false;
 bool gimbal_inited_v = false;
 
-std::map<double, AngV> imu_ang_v;
+std::map<double, Eigen::Vector3f> imu_ang_v_vec;
 std::map<double, float> h_ang_map;
 std::map<double, float> v_ang_map;
 std::map<double, Eigen::Quaternionf> q_rot_c_map;
@@ -190,112 +190,46 @@ Eigen::Vector3f trans_c;
 
 bool is_point_valid(const PointType& pt)
 {
-  return pt.x != 0;
+  if (pt.x == 0)
+    return false;
+  return pt.getVector3fMap().norm() < 1000;
 }
 
-/**
- * Calculates the integral of angle change over a specified time range.
- *
- * @param imu_ang_v A map containing the angular velocities at different timestamps.
- * @param start_time The starting time of the range.
- * @param end_time The ending time of the range.
- * @param xyz_order The order of the XYZ axis (1 for X, 2 for Y, 3 for Z).
- * @return The total angle change over the specified time range.
- */
-double angle_integral(const std::map<double, AngV>& imu_ang_v, double start_time, double end_time, int xyz_order)
+void rotation_integral(const std::map<double, Eigen::Vector3f>& imu_ang_v_vec, double start_time, double end_time, Eigen::Matrix3f& rot)
 {
-  double angle_change = 0.0;
-
-  // 获取在指定时间范围内的角速度值
-  std::map<double, double> filtered_values;
-  for (const auto& pair : imu_ang_v) {
-      if (pair.first >= start_time && pair.first <= end_time) {
-        switch (xyz_order)
-        {
-        case 1:
-          filtered_values[pair.first] = pair.second.ang_v_x;
-          break;
-        case 2:
-          filtered_values[pair.first] = pair.second.ang_v_y;
-          break;        
-        case 3:
-          filtered_values[pair.first] = pair.second.ang_v_z;
-          break;        
-        default:
-          break;
-        }
-      }
+  if (start_time == end_time)
+  {
+    rot = Eigen::Matrix3f::Identity();
+    return;
   }
-
-  //std::cout << filtered_values.size() << std::endl;
-  // 如果没有符合条件的数据点，则返回0
-  if (filtered_values.empty()) {
-      //std::cerr << "No data between two times:" << start_time << "," << end_time << std::endl;
-      auto closest = --imu_ang_v.lower_bound(end_time);
-      switch (xyz_order)
-      {
-        case 1:
-          angle_change = closest->second.ang_v_x * (end_time - start_time);
-          break;
-        case 2:
-          angle_change = closest->second.ang_v_y * (end_time - start_time);
-          break;        
-        case 3:
-          angle_change = closest->second.ang_v_z * (end_time - start_time);
-          break;        
-        default:
-          angle_change = 0.0;
-          break;
-      }
-      return angle_change;
-    }
-
-  // 处理从 start_time 到 filtered_values 的第一个时间点的积分
-  auto first_pair = filtered_values.begin();
-  double first_time = first_pair->first;
-  double first_velocity = first_pair->second; // 第一个时间点的角速度
-  
-  if (start_time < first_time) {
-      // 积分从 start_time 到 first_time
-      double dt_start = first_time - start_time;
-      angle_change += first_velocity * dt_start; // 使用简单的矩形法
+  else if (start_time > end_time)
+  {
+    rotation_integral(imu_ang_v_vec, end_time, start_time, rot);
+    return;
   }
-
-  // 在 filtered_values 中进行积分（中间部分）
-  auto it = filtered_values.begin();
-  double last_time = it->first;
-  double last_velocity = it->second; // 第一个时间点的角速度
-
-  ++it; // 移动到下一个元素
-
-  while (it != filtered_values.end()) {
-      double current_time = it->first;
-      double current_velocity = it->second; // 当前时间点的角速度
-      
-      // 使用梯形法计算在这个时间段内转过的角度
-      double dt = current_time - last_time; // 时间差
-      //std::cout << current_velocity << ", " << dt << std::endl;
-      angle_change += (last_velocity + current_velocity) / 2.0 * dt; // 梯形法积分
-      
-      // 更新 last_time 和 last_velocity
-      last_time = current_time;
-      last_velocity = current_velocity;
-
-      ++it; // 移动到下一个元素
+  Eigen::Matrix3f rot_integral = Eigen::Matrix3f::Identity();
+  auto it = imu_ang_v_vec.lower_bound(start_time);
+  if (it->first > end_time)
+  {
+    double dt = end_time - start_time;
+    Eigen::AngleAxisf angle_axis(dt * it->second.norm(), it->second.normalized());
+    rot = angle_axis.toRotationMatrix();
+    return;
   }
-
-  // 处理从 filtered_values 的最后一个时间点到 end_time 的积分
-  auto last_pair = --filtered_values.end(); // 最后一个元素
-  double last_time_filtered = last_pair->first;
-  double last_velocity_filtered = last_pair->second; // 最后一个时间点的角速度
-
-  if (end_time > last_time_filtered) {
-      // 积分从 last_time_filtered 到 end_time
-      double dt_end = end_time - last_time_filtered;
-      angle_change += last_velocity_filtered * dt_end; // 使用简单的矩形法
+  else
+  {
+    double dt = it->first - start_time;
+    Eigen::AngleAxisf angle_axis(dt * it->second.norm(), it->second.normalized());
+    rot_integral = angle_axis.toRotationMatrix();
   }
-
-  return angle_change; // 返回在时间区间内转过的总角度
+  while (it != imu_ang_v_vec.end() && it->first <= end_time) {
+    double dt = (std::next(it) != imu_ang_v_vec.end() && std::next(it)->first <= end_time) ? 
+                std::next(it)->first - it->first : end_time - it->first;
+    Eigen::AngleAxisf angle_axis(dt * it->second.norm(), it->second.normalized());
+    rot_integral = rot_integral * angle_axis.toRotationMatrix();
+    ++it;
+  }
+  rot = rot_integral;
 }
 
 void gnss_callback(sensor_msgs::NavSatFix gps_msg)
@@ -349,7 +283,7 @@ void gimbal_pan_callback(std_msgs::Float32MultiArray msg)
   t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
   gimbal_horizontal_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
   // gimbal_horizontal_angle.header.stamp.fromSec(msg.data[0]);
-  gimbal_horizontal_angle.value = -msg.data[1] * M_PIq / 180.0;
+  gimbal_horizontal_angle.value = -msg.data[1] * M_PIq / 180.0; // Notice the sign.
   gimbal_inited_h = true;
   h_ang_map[gimbal_horizontal_angle.header.stamp.toSec()] = gimbal_horizontal_angle.value;
 }
@@ -369,19 +303,8 @@ void gimbal_tilt_callback(std_msgs::Float32MultiArray msg)
 void imu_callback(sensor_msgs::Imu imu_data)
 {
   t_cvter.get_offset("Avia_stamp", ros::Time::now(), imu_data.header.stamp.toSec());
-  double dot_product = imu_data.linear_acceleration.x * imu_data.angular_velocity.x
-                     + imu_data.linear_acceleration.y * imu_data.angular_velocity.y;
-  double ang_v_y = 0;
-  if (dot_product > 0)
-    ang_v_y = std::sqrt(imu_data.angular_velocity.x * imu_data.angular_velocity.x + imu_data.angular_velocity.y * imu_data.angular_velocity.y);
-  else
-    ang_v_y = -std::sqrt(imu_data.angular_velocity.x * imu_data.angular_velocity.x + imu_data.angular_velocity.y * imu_data.angular_velocity.y);
-  AngV ang_v_tmp = {
-    0,
-    ang_v_y,
-    imu_data.angular_velocity.z
-  };
-  imu_ang_v[t_cvter.convert("Avia_stamp", "ros_stamp", imu_data.header.stamp.toSec())] = ang_v_tmp;
+  Eigen::Vector3f ang_v(imu_data.angular_velocity.x, imu_data.angular_velocity.y, imu_data.angular_velocity.z);
+  imu_ang_v_vec[t_cvter.convert("Avia_stamp", "ros_stamp", imu_data.header.stamp.toSec())] = ang_v;
 }
 
 void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
@@ -423,27 +346,67 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   map_mtx.lock();
   //Get the frame's initial pose by feedback.
   auto it_h_ang = --h_ang_map.lower_bound(point_time);
+  auto it_h_ang_next = h_ang_map.lower_bound(point_time);
   auto it_v_ang = --v_ang_map.lower_bound(point_time);
+  auto it_v_ang_next = v_ang_map.lower_bound(point_time);
+  double comp_head_time = frame_time;  
   float yaw_g_angle = it_h_ang->second - yaw_shift;
-  float &pitch_l_angle = yaw_g_angle; 
   float pitch_g_angle = it_v_ang->second - pitch_shift;
+  comp_head_time = it_h_ang->first;
+  // if (it_h_ang->first > it_v_ang->first)
+  // {
+  //   comp_head_time = it_h_ang->first;
+  //   pitch_g_angle += (it_h_ang->first - it_v_ang->first) * (it_v_ang_next->second - it_v_ang->second) / (it_v_ang_next->first - it_v_ang->first);
+  // }
+  // else
+  // {
+  //   comp_head_time = it_v_ang->first;
+  //   yaw_g_angle += (it_v_ang->first - it_h_ang->first) * (it_h_ang_next->second - it_h_ang->second) / (it_h_ang_next->first - it_h_ang->first);
+  // }
+
+  float &pitch_l_angle = yaw_g_angle; 
   float &minus_yaw_l_angle = pitch_g_angle;
   Eigen::Matrix3f yaw_l_fr = Eigen::AngleAxisf((-minus_yaw_l_angle), Eigen::Vector3f::UnitZ()).toRotationMatrix();
   Eigen::Matrix3f pitch_l_fr = Eigen::AngleAxisf((pitch_l_angle), Eigen::Vector3f::UnitY()).toRotationMatrix();
-  Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
-  pose.topLeftCorner<3, 3>() = init_rotation * pitch_l_fr * yaw_l_fr;
+  Eigen::Matrix4f frame_init_pose = Eigen::Matrix4f::Identity();
+  frame_init_pose.topLeftCorner<3, 3>() = init_rotation * pitch_l_fr * yaw_l_fr;
   map_mtx.unlock();
 
   CloudType::Ptr p_cloud_out(new CloudType);
   p_cloud_out->resize(p_cloud->size());
   int interval = std::floor(frame_point_num / cfg.frame_process_num);
+  std::map<double, Eigen::Matrix3f> frame_imu_rot_map;
+  auto it_imu = --imu_ang_v_vec.lower_bound(frame_time);
   switch (cfg.overlap_mode)
   {
     case STATIC_MODE:
-      pcl::transformPointCloud(*p_cloud, *p_cloud_out, pose);
+      pcl::transformPointCloud(*p_cloud, *p_cloud_out, frame_init_pose);
       point_time += frame_T;
       break;
     case DYNAMIC_MODE:
+      // Calculate the rotation in imu stamps.
+      // while (it_imu != imu_ang_v_vec.end() && it_imu->first <= frame_time + frame_T)
+      // {
+      //   if (it_imu == imu_ang_v_vec.begin())
+      //   {
+      //     ++it_imu;
+      //     continue;
+      //   }
+      //   double dt = (std::next(it_imu) != imu_ang_v_vec.end() && std::next(it_imu)->first <= frame_time + frame_T) ? 
+      //               std::next(it_imu)->first - it_imu->first : frame_time + frame_T - it_imu->first;
+      //   Eigen::AngleAxisf angle_axis(dt * it_imu->second.norm(), it_imu->second.normalized());
+      //   if (frame_imu_rot_map.empty())
+      //   {
+      //     Eigen::Matrix3f frame_imu_rot_0 = Eigen::Matrix3f::Identity();
+      //     rotation_integral(imu_ang_v_vec, comp_head_time, it_imu->first, frame_imu_rot_0);
+      //     frame_imu_rot_map[it_imu->first] = frame_imu_rot_0;
+      //   }
+      //   else
+      //     frame_imu_rot_map[it_imu->first] = frame_imu_rot_map.rbegin()->second * angle_axis.toRotationMatrix();
+      //   ++it_imu;
+      // }
+
+      // Calculate the rotation in lidar point stamps.
       #pragma omp parallel for
       for (int i = 0; i < interval * cfg.frame_process_num; i+=interval)
       {
@@ -453,17 +416,14 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         //Get the point's time.
         double point_time = point_time_start + point_idx * Avia_dt;    
         
-        //Calculate the point's pose.
-        double dyaw_l_angle = 0, dpitch_l_angle = 0;
-        //If it's the first point in a frame, integral from the feedback.
-        dyaw_l_angle = angle_integral(imu_ang_v, it_v_ang->first, point_time, 3);
-        dpitch_l_angle = angle_integral(imu_ang_v, it_h_ang->first, point_time, 2) - omega_c.z() * (frame_time - it_h_ang->first);
-        Eigen::Matrix3f yaw_l_pt = Eigen::AngleAxisf(-minus_yaw_l_angle + dyaw_l_angle, Eigen::Vector3f::UnitZ()).toRotationMatrix();
-        Eigen::Matrix3f pitch_l_pt = Eigen::AngleAxisf(pitch_l_angle + dpitch_l_angle, Eigen::Vector3f::UnitY()).toRotationMatrix();
+        //Get the point's rotation.
+        //auto it_lower_imu_rot = --frame_imu_rot_map.lower_bound(point_time);
+        //double dt = point_time - it_lower_imu_rot->first;
+        Eigen::Matrix3f rot_delta = Eigen::Matrix3f::Identity();
+        rotation_integral(imu_ang_v_vec, comp_head_time, point_time, rot_delta);
         Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
-        pose.topLeftCorner<3, 3>() = init_rotation * pitch_l_pt * yaw_l_pt;
-        rot_c = q_rot_c_map.lower_bound(point_time)->second.toRotationMatrix();
-        v_g = car2gimbal_rot * rot_c * v_w;
+        //pose.topLeftCorner<3, 3>() = frame_init_pose.topLeftCorner<3, 3>() * it_lower_imu_rot->second * rot_delta; 
+        pose.topLeftCorner<3, 3>() = frame_init_pose.topLeftCorner<3, 3>() * rot_delta;
         Eigen::Vector3f translation = pose.topLeftCorner<3, 3>() * init_translation;
         pose.topRightCorner<3, 1>() = translation;
 
@@ -485,15 +445,9 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
       break;
   }
 
-  // Because the LiDAR is not aligned with the gimbal, 
-  // we need to rotate the point cloud to align with the gimbal.
-  // Eigen::Matrix4f align_pose = Eigen::Matrix4f::Identity();
-  // align_pose.topLeftCorner<3, 3>() = Eigen::AngleAxisf(M_PI / 2, Eigen::Vector3f::UnitX()).toRotationMatrix();
-  // pcl::transformPointCloud(*p_cloud_out, *p_cloud_out, align_pose);
-
   sensor_msgs::PointCloud2 msg_out;
   Eigen::Matrix4f real_pose = Eigen::Matrix4f::Identity();
-  real_pose.topLeftCorner<3, 3>() = car2gimbal_rot *  q_rot_c_map.lower_bound(frame_time)->second.toRotationMatrix();
+  real_pose.topLeftCorner<3, 3>() = car2gimbal_rot *  q_rot_c_map.lower_bound(comp_head_time)->second.toRotationMatrix();
   real_pose.topRightCorner<3, 1>() = trans_c + car2gimbal_trans;
   pcl::transformPointCloud(*p_cloud_out, *p_cloud_out, real_pose);
   pcl::toROSMsg(*p_cloud_out, msg_out);
