@@ -341,25 +341,20 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   ROS_INFO_STREAM("Point time:" << std::fixed << std::setprecision(9) << point_time);
   std::cout << "Valid point count:" << valid_point_count << std::endl;
 
-  map_mtx.lock();
   //Get the frame's initial pose by feedback.
+  if (h_ang_map.size() < 3 || v_ang_map.size() < 3)
+  {
+    ROS_INFO_STREAM("\033[91m" << "Not enough gimbal data." << "\033[0m");
+    return;
+  }
   auto it_h_ang = --h_ang_map.lower_bound(point_time);
-  auto it_h_ang_next = h_ang_map.lower_bound(point_time);
+  auto it_h_ang_prev = --(--h_ang_map.lower_bound(point_time));
   auto it_v_ang = --v_ang_map.lower_bound(point_time);
-  auto it_v_ang_next = v_ang_map.lower_bound(point_time);
-  double comp_head_time = frame_time;  
+  auto it_v_ang_prev = --(--v_ang_map.lower_bound(point_time)); 
+  double comp_head_time = it_h_ang->first;  
   float yaw_g_angle = it_h_ang->second - yaw_shift;
   float pitch_g_angle = it_v_ang->second - pitch_shift;
-  if (it_h_ang->first > it_v_ang->first)
-  {
-    comp_head_time = it_h_ang->first;
-    pitch_g_angle += (it_h_ang->first - it_v_ang->first) * (it_v_ang_next->second - it_v_ang->second) / (it_v_ang_next->first - it_v_ang->first);
-  }
-  else
-  {
-    comp_head_time = it_v_ang->first;
-    yaw_g_angle += (it_v_ang->first - it_h_ang->first) * (it_h_ang_next->second - it_h_ang->second) / (it_h_ang_next->first - it_h_ang->first);
-  }
+  pitch_g_angle += (comp_head_time - it_v_ang_prev->first) * (it_v_ang->second - it_v_ang_prev->second) / (it_v_ang->first - it_v_ang_prev->first);
 
   float &pitch_l_angle = yaw_g_angle; 
   float &minus_yaw_l_angle = pitch_g_angle;
@@ -367,7 +362,6 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   Eigen::Matrix3f pitch_l_fr = Eigen::AngleAxisf((pitch_l_angle), Eigen::Vector3f::UnitY()).toRotationMatrix();
   Eigen::Matrix4f frame_init_pose = Eigen::Matrix4f::Identity();
   frame_init_pose.topLeftCorner<3, 3>() = init_rotation * pitch_l_fr * yaw_l_fr;
-  map_mtx.unlock();
 
   CloudType::Ptr p_cloud_out(new CloudType);
   p_cloud_out->resize(p_cloud->size());
@@ -410,8 +404,7 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         Eigen::Matrix3f rot_delta = Eigen::Matrix3f::Identity();
         rotation_integral(imu_ang_v_vec, it_lower_imu_rot->first, point_time, rot_delta);
         Eigen::Matrix4f pose = Eigen::Matrix4f::Identity();
-        //pose.topLeftCorner<3, 3>() = frame_init_pose.topLeftCorner<3, 3>() * it_lower_imu_rot->second * rot_delta; 
-        pose.topLeftCorner<3, 3>() = frame_init_pose.topLeftCorner<3, 3>() * it_lower_imu_rot->second * rot_delta;
+        pose.topLeftCorner<3, 3>() = frame_init_pose.topLeftCorner<3, 3>() * it_lower_imu_rot->second * rot_delta; 
         Eigen::Vector3f translation = pose.topLeftCorner<3, 3>() * init_translation;
         pose.topRightCorner<3, 1>() = translation;
 
@@ -514,14 +507,15 @@ int main(int argc, char **argv)
                   * Eigen::AngleAxisf(cfg.car2gimbal_transformation[4] / 180 * M_PI, Eigen::Vector3f::UnitY()).toRotationMatrix()
                   * Eigen::AngleAxisf(cfg.car2gimbal_transformation[5] / 180 * M_PI, Eigen::Vector3f::UnitX()).toRotationMatrix();
 
-  imu_sub = nh.subscribe("/livox/imu", 1, &imu_callback);
+  // Notice the queue sizes.
+  imu_sub = nh.subscribe("/livox/imu", 25, &imu_callback);
   cloud_sub = nh.subscribe("/livox/lidar", 1, &pointcloud2_callback);
   // gimbal_sub_h = nh.subscribe("/horizontal_angle", 1, &gimbal_horizontal_callback);
   // gimbal_sub_v = nh.subscribe("/vertical_angle", 1, &gimbal_vertical_callback);
-  gimbal_sub_pan = nh.subscribe("pan", 1, &gimbal_pan_callback);
-  gimbal_sub_tilt = nh.subscribe("tilt", 1, &gimbal_tilt_callback);
-  gnss_sub = nh.subscribe("/Inertial/gps/fix", 1, &gnss_callback);
-  car_imu_sub = nh.subscribe("/Inertial/imu/data", 1, &car_imu_callback);
+  gimbal_sub_pan = nh.subscribe("pan", 4, &gimbal_pan_callback);
+  gimbal_sub_tilt = nh.subscribe("tilt", 4, &gimbal_tilt_callback);
+  gnss_sub = nh.subscribe("/Inertial/gps/fix", 15, &gnss_callback);
+  car_imu_sub = nh.subscribe("/Inertial/imu/data", 15, &car_imu_callback);
 
   cloud_pub = nh.advertise<sensor_msgs::PointCloud2>("/registered_cloud", 1);
 
