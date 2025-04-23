@@ -1,0 +1,10 @@
+.cache
+.vscode/*
+!.vscode/cmake-kits.json
+
+build
+devel
+install
+
+FreeSLAM/3rdparty
+FreeSLAM_ros/data

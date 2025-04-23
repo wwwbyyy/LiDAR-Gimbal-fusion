@@ -1,0 +1,1 @@
+rosrun iekf3d node /home/loc/loc_ws/src/IVFC-Localization/src/iekf3d/configs/configs.yaml

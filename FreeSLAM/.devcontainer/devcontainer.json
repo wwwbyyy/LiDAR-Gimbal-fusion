@@ -1,0 +1,49 @@
+{
+    "name" : "FreeSLAM",
+    "build" : {
+        "dockerfile": "Dockerfile"
+    },
+    "customizations": {
+		"vscode": {
+			"settings": {
+				"terminal.integrated.profiles.linux": {
+					"ros-bash": {
+						"path": "/ros_entrypoint.sh",
+						"args": [
+							"/bin/bash"
+						]
+					}
+				},
+				"terminal.integrated.defaultProfile.linux": "ros-bash",
+				"clangd.arguments": ["--header-insertion=never"],
+				"C_Cpp.intelliSenseEngine": "disabled",
+				"ros.distro": "noetic",
+				"files.autoSave": "afterDelay",
+				"editor.formatOnSave": true,
+				"[cpp]": {
+					"editor.defaultFormatter": "llvm-vs-code-extensions.vscode-clangd"
+				}
+			},
+			"extensions": [
+				"ms-python.python",
+				"ms-vscode.cpptools",
+				"llvm-vs-code-extensions.vscode-clangd",
+				"ms-vscode.cmake-tools",
+				"usernamehw.errorlens",
+				"mhutchie.git-graph",
+				"seatonjiang.gitmoji-vscode",
+				"ms-iot.vscode-ros",
+				"cschlosser.doxdocgen"
+			]
+		}
+	},
+	"runArgs": [
+		"--network=host",
+		"--cap-add=SYS_PTRACE",
+		"-e", "DISPLAY=:1",
+		"-v", "/tmp/.X11-unix:/tmp/.X11-unix",
+		"-v", "/mnt/e:/mnt/data"
+	],
+    "workspaceMount": "source=${localWorkspaceFolder},target=/home/xinyang/${localWorkspaceFolderBasename},type=bind",
+	"workspaceFolder": "/home/xinyang/${localWorkspaceFolderBasename}"
+}

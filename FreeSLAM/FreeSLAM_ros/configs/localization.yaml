@@ -1,0 +1,42 @@
+prog_cfg:
+  bag_file: ""
+  bag_rate: 0.0
+
+  gps_status_valid: 2
+
+  # pointcloud2 | livox
+  lidar_type: pointcloud2
+  lidar_topic: /driver/hesai/pandar
+  gps_topic: /Inertial/gps/fix/nop
+  imu_topic: /Inertial/imu/data/nop
+
+app_cfg:
+  voxel_cfg:
+    max_num_voxels: -1
+    max_num_points: -1
+    resolution: 0.5
+    min_distance: 0.2
+
+  reg_cfg:
+    max_iterations: 20
+    robust_kernel: 0.0
+    rotation_epsilon: 1e-3
+    translation_epsilon: 1e-2
+
+  map_info: ../data/Changshu1016/map-info.yaml
+  enable_deskew: true
+
+  initial: []
+
+  # lidar -> body(gps)
+  extinct: [1.15, 0, 1.96, 0, 0, 1.5315]
+  # imu -> body(gps)
+  imu_extinct: [0, 0, 1.5524763267948967]
+
+  tracking_voxel: 2.0
+
+  # filter before extinct
+  range_min: 4
+  range_max: 250
+  z_min: -4
+  z_max: 5

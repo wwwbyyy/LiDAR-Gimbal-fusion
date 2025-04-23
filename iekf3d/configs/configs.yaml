@@ -1,0 +1,73 @@
+# map_path: ../../../data/Changshu1120
+map_path: /home/loc/loc_ws/src/IVFC-Localization/src/iekf3d/data/SJTU1031
+
+pointcloud2_topic: /driver/hesai/pandar
+gnss_topic: /Inertial/gps/fix
+imu_topic: /Inertial/imu/data
+speed_topic: /rock_can/speed_feedback
+steer_topic: /rock_can/steer_feedback
+
+valid_gnss_status: [2]
+
+voxel_leaf:   2.0
+
+range_filter_min: 2.0
+range_filter_max: 200
+
+local_range:  300
+update_range: 80
+
+tracking_bad_fitness: 0.0
+
+# lidar -> body(gps)
+lidar_extinct: [1.15, 0, 1.96, 0, 0, 1.5315]
+
+# imu -> body(gps)
+imu_extinct: [0, 0, 1.5524763267948967]
+
+### rostopic echo /slam/odometry
+### 6 elements: Translation(m) + Euler[x,y,z](degree)
+### 7 elements: Translation(m) + Quaternion[x,y,z,w]
+initialposes: []
+# initialposes: 
+#   - [106.82456306983221, 103.84314433258491, -0.09083283056619072, 0.006375589210193005, 0.006884123049712846, 0.9988182698952124, 0.047686732280519215]
+#   - [324.11149408321904, 38.256138589760425, -0.09770720334202906, 0.004892083964128054, 0.0004925539820176419, -0.9543327484907524, 0.2987052561692698]
+#   - [152.1243664786419, -63.82583277158281, -0.3735423746014234, -0.017363151294006837, 0.008731099366591317, -0.04744013557195625, 0.9986849965919719]
+
+
+### higher fitness, better fitting
+initializing_fitness_threshold: 0.38
+### max translation error (m)
+initializing_translation_threshold: 5.0
+### max rotation error (degree)
+initializing_rotation_threshold: 10.0
+
+points_interval:  1
+
+icp:
+  iterations:     50
+  distance_thres: 10.0
+  planefit_thres: 0.2
+  robust_kernel:  0.1
+  translation_epsilon: 0.01
+  rotation_epsilon: 0.001
+  resolutions: [0.2, 0.1]
+
+iekf:
+  max_iterations: 10
+  max_duration_ms: 200
+  distance_thres: 3.0
+  robust_kernel: 0.1
+  attitude_std: 3.0e-2
+  position_std: 1.0e-2
+  angular_velocity_std: 9.0e-2
+  linear_velocity_std: 3.0e-2
+  icp_measure_std: 5.0e-1
+  speed_measure_std: 2.0e-1
+  imu_measure_std: 2.0e-1
+  translation_epsilon: 1.0e-2
+  rotation_epsilon: 1.0e-3
+  linear_velocity_epsilon: 1.0e-2
+  angular_velocity_epsilon: 1.0e-3
+  max_possible_linear_velocity: 20
+  max_possible_angular_velocity: 6

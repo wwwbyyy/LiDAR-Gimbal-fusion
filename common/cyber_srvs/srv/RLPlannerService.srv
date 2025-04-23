@@ -1,0 +1,9 @@
+std_msgs/Header header
+nav_msgs/OccupancyGrid local_map
+geometry_msgs/Pose start_pose
+geometry_msgs/Pose target_pose
+
+---
+
+std_msgs/Header header
+cyber_msgs/ParkingTrajList trajectory

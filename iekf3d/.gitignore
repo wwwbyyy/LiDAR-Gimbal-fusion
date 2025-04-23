@@ -1,0 +1,10 @@
+.cache
+build
+logs
+
+data/*/*.ply
+data/*/*.pcd
+data/*/*.png
+data/*/*.jpg
+data/*/*.yaml
+data/*/*.txt
