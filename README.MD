@@ -10,7 +10,9 @@
   
   see run_docker.sh
 
-- catkin_make
+- build
+  
+  catkin_make -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
 - mapping
   
@@ -19,6 +21,7 @@
 - localization
   
   see localization.sh
+  rviz -d iekf3d/configs/lidar3d.rviz
 
 - lidar node for deskew
   
