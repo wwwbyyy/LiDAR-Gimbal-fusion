@@ -1,6 +1,6 @@
 .vscode/c_cpp_properties.json
 .vscode/settings.json
-CMakeLists.txt
+./CMakeLists.txt
 .vscode/tasks.json
 .vscode/launch.json
 iekf3d/data
