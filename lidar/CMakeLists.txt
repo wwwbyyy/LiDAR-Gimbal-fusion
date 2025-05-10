@@ -64,8 +64,7 @@ find_package(OpenMP REQUIRED)
 ## Generate messages in the 'msg' folder
 # add_message_files(
 #   FILES
-#   Message1.msg
-#   Message2.msg
+#   GimbalCommand.msg
 # )
 
 ## Generate services in the 'srv' folder
@@ -118,10 +117,10 @@ find_package(OpenMP REQUIRED)
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
- INCLUDE_DIRS include
+#  INCLUDE_DIRS include
  #geometry_msgs
 #  LIBRARIES lidar
- CATKIN_DEPENDS roscpp sensor_msgs std_msgs cyber_msgs tf2_ros roslib
+#  CATKIN_DEPENDS roscpp sensor_msgs std_msgs cyber_msgs tf2_ros roslib
 #  DEPENDS system_lib
 )
 
