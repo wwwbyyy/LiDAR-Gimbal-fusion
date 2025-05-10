@@ -8,10 +8,14 @@
 #include <utility>
 #include <cstdint>
 #include <signal.h>
-
-#define read_buffer_size 7
-
-const float tilt_zero_deg = -3; // the realistic zero degree of tilt
+#include <fstream>
+#include <iostream>
+#include <mutex>
+#include <thread>
+#include <queue>
+#include <chrono>
+#include <iostream>
+#include "GimbalCommand.h"
 
 typedef enum command
 {
@@ -20,15 +24,44 @@ typedef enum command
     DOWN      = 0x10,  // 下
     LEFT      = 0x04,  // 左
     RIGHT     = 0x02,  // 右
-    UPLEFT    = 0x0C,  // 上左
-    UPRIGHT   = 0x0A,  // 上右
-    DOWNLEFT  = 0x14,  // 下左
-    DOWNRIGHT = 0x12,  // 下右
-    PAN       = 0x4B,  // 水平旋转至指定角度
-    TILT      = 0x4D,  // 俯仰旋转至指定角度
-    ASKPAN    = 0x51,  // 查询水平位置
-    ASKTILT   = 0x53   // 查询俯仰位置
+    UPLEFT    = 0x0C,  // 上左, 12
+    UPRIGHT   = 0x0A,  // 上右, 10
+    DOWNLEFT  = 0x14,  // 下左, 20
+    DOWNRIGHT = 0x12,  // 下右, 18
+    PAN       = 0x4B,  // 水平旋转至指定角度, 75
+    TILT      = 0x4D,  // 俯仰旋转至指定角度, 77
+    ASKPAN    = 0x51,  // 查询水平位置, 81
+    ASKTILT   = 0x53   // 查询俯仰位置, 83
 };
+
+typedef enum serial_port_status
+{
+    WRITE = 0,
+    READ = 1
+};
+
+// 定义全局变量
+ros::Publisher msg_pub;
+ros::Publisher pan_pub;
+ros::Publisher tilt_pub;
+ros::Subscriber cmd_sub;
+double start_time;
+// std::ofstream outputFilepan("feedback_data_pan.csv", std::ios::app);
+// std::ofstream outputFiletilt("feedback_data_tilt.csv", std::ios::app);
+const size_t read_buffer_size = 7; // PELCO-D 协议反馈数据长度
+
+const float tilt_zero_deg = -3; // the realistic zero degree of tilt
+float pan_angle = 0;
+float tilt_angle = 0;
+
+// 串口和互斥锁
+serial::Serial serial_port;
+std::mutex serial_mutex;
+int serial_port_status = READ;
+
+// 控制指令队列
+std::queue<std::vector<uint8_t>> command_queue;
+std::mutex queue_mutex;
 
 // 将角度值映射到0-360度的范围
 float normalize_angle_pan(float angle) 
@@ -56,10 +89,10 @@ float normalize_angle_tilt(float angle)
 float reverse_normalize_angle_tilt(float angle)
 {
     float normalized_angle = angle - tilt_zero_deg;
-    if (normalized_angle < 0)
-    {
-        normalized_angle = 360.0 + normalized_angle;
-    }
+    // if (normalized_angle < 0)
+    // {
+    //     normalized_angle = 360.0 + normalized_angle;
+    // }
     return normalized_angle;
 }
 
@@ -150,78 +183,133 @@ std::vector<uint8_t> pelco_d_command(uint8_t cmd, float data)
     command[4] = data_bytes.first;  // data1
     command[5] = data_bytes.second; // data2
     command[6] = (command[1] + command[2] + command[3] + command[4] + command[5]) % 256;  // 校验和
-    // std::cout << "Send: ";
-    // for (auto byte : command) {
-    //     std::cout << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(byte) << " ";
-    // }
-    // std::cout << std::endl;
     return command;
 }
 
-ros::Publisher msg_pub;
-ros::Publisher pan_pub;
-ros::Publisher tilt_pub;
-
-bool check_serial_data(std::vector<uint8_t> data)
-{
-    if (data.size() == read_buffer_size)
-    {
-        if (data[3] == 0x59 || data[3] == 0x5B) //角度反馈
-        {
-            if (data[6] == (data[1] + data[2] + data[3] + data[4] + data[5]) % 256)
+// 数据校验函数
+bool check_serial_data(const std::vector<uint8_t>& data) {
+    if (data.size() == read_buffer_size) {
+        if (data[0] == 0xFF && data[1] == 0x01 && (data[3] == 0x59 || data[3] == 0x5B)) { // 检查同步字节和地址字节
+            if (data[6] == (data[1] + data[2] + data[3] + data[4] + data[5]) % 256) {
                 return true;
+            }
         }
     }
     return false;
 }
 
-double start_time;
-// 从串口读取反馈数据
-void read_from_serial_port(serial::Serial& serial_port)
-{
-    double current_time = ros::Time::now().toSec();
-    std::vector<uint8_t> feedback_data;
-    feedback_data.resize(read_buffer_size + 1); // 缓冲区，过大会导致读取变慢
+// 读取角度函数
+void read_angles() {
+    while (ros::ok()) {
+        double current_time_pan = start_time, current_time_tilt = start_time;
+        std::vector<uint8_t> pan_feedback(read_buffer_size);
+        std::vector<uint8_t> tilt_feedback(read_buffer_size);
+        if (serial_port_status == READ) {
+            // 读取水平角度
+            {
+                std::lock_guard<std::mutex> lock(serial_mutex);
+                std::vector<uint8_t> pan_command = pelco_d_command(ASKPAN, 0.0);
+                serial_port.write(pan_command);
+                // double current_time_pan = ros::Time::now().toSec() - start_time;
+                current_time_pan = ros::Time::now().toSec();
+                size_t pan_bytes_read = serial_port.read(pan_feedback.data(), pan_feedback.size());
+                pan_feedback.resize(pan_bytes_read);
+            }
 
-    // 读取数据直到超时或读取到一定字节数
-    size_t bytes_read = serial_port.read(feedback_data.data(), feedback_data.size());
-    feedback_data.resize(bytes_read);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
 
-    // 数据校验
-    if (check_serial_data(feedback_data))
-    {
-        float position = data_to_position(feedback_data[3] - 0x08, feedback_data[4], feedback_data[5]);
-        //printf("position: %.2f deg\n", position);
-        std_msgs::Float64MultiArray feedback_msg;
-        //double current_time = ros::Time::now().toSec() - start_time;
-        //ROS_INFO("current time: %.2f", current_time);  
-        feedback_msg.data.push_back(current_time);
-        if (feedback_data[3] - 0x08 == ASKPAN)
-        {
-            feedback_msg.data.push_back(-position);
-            pan_pub.publish(feedback_msg);
+            {
+                std::lock_guard<std::mutex> lock(serial_mutex);
+                // 读取垂直角度
+                std::vector<uint8_t> tilt_command = pelco_d_command(ASKTILT, 0.0);
+                serial_port.write(tilt_command);
+                // double current_time_tilt = ros::Time::now().toSec() - start_time;
+                current_time_tilt = ros::Time::now().toSec();
+                size_t tilt_bytes_read = serial_port.read(tilt_feedback.data(), tilt_feedback.size());
+                tilt_feedback.resize(tilt_bytes_read);
+            }
+
+
+            // 处理反馈数据
+            if (check_serial_data(pan_feedback)) {
+                pan_angle = data_to_position(pan_feedback[3] - 0x08, pan_feedback[4], pan_feedback[5]);
+                std_msgs::Float64MultiArray pan_msg;
+                pan_msg.data.push_back(current_time_pan);
+                pan_msg.data.push_back(-pan_angle);
+                pan_pub.publish(pan_msg);
+                // outputFilepan << current_time_pan - start_time << "\t" << -pan_angle << std::endl;
+            }
+
+            if (check_serial_data(tilt_feedback)) {
+                tilt_angle = data_to_position(tilt_feedback[3] - 0x08, tilt_feedback[4], tilt_feedback[5]);
+                std_msgs::Float64MultiArray tilt_msg;
+                tilt_msg.data.push_back(current_time_tilt);
+                tilt_msg.data.push_back(reverse_normalize_angle_tilt(tilt_angle));
+                tilt_pub.publish(tilt_msg);
+                // outputFiletilt << current_time_tilt - start_time << "\t" << reverse_normalize_angle_tilt(tilt_angle) << std::endl;
+            }
         }
-        else if (feedback_data[3] - 0x08 == ASKTILT)
-        {
-            feedback_msg.data.push_back(reverse_normalize_angle_tilt(position));
-            tilt_pub.publish(feedback_msg);
-        }
+        // 25hz
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    
-
-    // std_msgs::UInt8MultiArray feedback_msg;
-
-    // for (auto byte : feedback_data) {
-    //     feedback_msg.data.push_back(byte);
-    // }
-    // msg_pub.publish(feedback_msg);
 }
 
-// void signalHandler(int signum) {
-//     ROS_INFO("Interrupt signal (%d) received. Setting flag to close serial port...", signum);
-//     flag = 1;
-//     ros::shutdown();
-// }
+
+// 鲁棒发送命令函数
+void robust_send_command(const std::vector<uint8_t>& command, int timeout_ms = 100) {
+    auto start_time = std::chrono::steady_clock::now();
+    float pre_pan_angle = pan_angle, pre_tilt_angle = tilt_angle;
+
+    while (ros::ok()) {
+        std::vector<uint8_t> feedback_data(read_buffer_size);
+        serial_port_status = WRITE;
+        {
+            std::lock_guard<std::mutex> lock(serial_mutex);
+            serial_port.write(command);
+        }
+        // 等待一段时间再切换READ从而不会立即读取角度
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        serial_port_status = READ;
+
+        // 检查是否超时
+        auto current_time = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count() >= timeout_ms) {
+            // ROS_WARN("Command execution timeout!");
+            // return false;
+            break;
+        }
+        // // 控制指令的精度是0.01
+        // if (std::abs(pre_pan_angle - pan_angle) > 9e-3 || std::abs(pre_tilt_angle - tilt_angle) > 9e-3) {
+        //     return true;
+        // }
+        // pre_pan_angle = pan_angle;
+        // pre_tilt_angle = tilt_angle;
+    }
+}
+
+// 处理控制指令函数
+void process_commands() {
+    // 自动读取命令（from rostopic）
+    while (ros::ok()) {
+        if (!command_queue.empty()) {
+            std::vector<uint8_t> command;
+            {
+                std::lock_guard<std::mutex> lock(queue_mutex);
+                command = command_queue.front();
+                command_queue.pop();
+            }
+            // 鲁棒发送命令
+            robust_send_command(command);
+        }
+        // 等待一段时间再检查队列
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
+
+void gimbalCmdCallback(cyber_msgs::GimbalCommandConstPtr msg) {
+    std::vector<uint8_t> command = pelco_d_command(msg->cmd, msg->data);
+    command_queue.push(command);
+}
 
 int main(int argc, char **argv) {
     // 初始化ROS节点
@@ -231,20 +319,19 @@ int main(int argc, char **argv) {
     //signal(SIGINT, signalHandler);
 
     // 配置串口
-    serial::Serial my_serial;
-    my_serial.setPort("/dev/ttyUSB0");  // 修改为实际的设备名
-    my_serial.setBaudrate(38400);
+    serial_port.setPort("/dev/ttyUSB0");  // 修改为实际的设备名
+    serial_port.setBaudrate(38400);
     serial::Timeout to = serial::Timeout::simpleTimeout(50);
-    my_serial.setTimeout(to);
+    serial_port.setTimeout(to);
 
     try {
-        my_serial.open();
+        serial_port.open();
     } catch (serial::IOException& e) {
         ROS_ERROR_STREAM("Unable to open port!");
         return -1;
     }
 
-    if (my_serial.isOpen()) {
+    if (serial_port.isOpen()) {
         ROS_INFO_STREAM("Serial Port initialized");
     } else {
         return -1;
@@ -253,101 +340,57 @@ int main(int argc, char **argv) {
     msg_pub = nh.advertise<std_msgs::UInt8MultiArray>("/pelco_msg", 1);
     pan_pub = nh.advertise<std_msgs::Float64MultiArray>("/pan", 1);
     tilt_pub = nh.advertise<std_msgs::Float64MultiArray>("/tilt", 1);
+    cmd_sub = nh.subscribe("/gimbal_cmd", 100, gimbalCmdCallback);
 
     start_time = ros::Time::now().toSec();
 
-    // ros::Timer timer = nh.createTimer(ros::Duration(0.08), angle_timer_callback);
-
-    ros::Rate loop_rate(40);
-    int ctrl = 0;
-    int cnt = 0;
     std::vector<uint8_t> command;
     command.resize(7);
 
     // 复位
     command = pelco_d_command(TILT, -20);
-    my_serial.write(command);
+    serial_port.write(command);
     ros::Duration(0.5).sleep();
     command = pelco_d_command(PAN, 0);
-    my_serial.write(command);
+    serial_port.write(command);
     ros::Duration(0.5).sleep();
     ROS_INFO("Reset.");
 
-    //int test_i = 0;
+    // 测试命令
+    command_queue.push(pelco_d_command(RIGHT, 50));
+
+
+    // 启动读取角度线程
+    std::thread read_thread(read_angles);
+
+    // 启动处理控制指令线程
+    std::thread command_thread(process_commands);
+
+    // 等待线程结束
+    read_thread.join();
+    command_thread.join();
+
+
+    // 手动读取命令
+    uint8_t cmd;
+    float data;
     while (ros::ok()) {
-
-        // 提示用户输入十六进制命令和数据
-        std::string cmd_input;
-        float data = 50.0;
-
-        if (cnt < 50)
-        {
-            cnt++;
-            loop_rate.sleep();
-            continue;
-        }
-
-        // // 获取十六进制命令
-        // std::cout << "请输入十六进制命令: ";
-        // std::cin >> cmd_input;
-
-        // // 转换为整型
-        // // unsigned int cmd_hex = 0x51;
-        // unsigned int cmd_hex;
-        // std::stringstream ss;
-        // ss << std::hex << cmd_input;
-        // ss >> cmd_hex;
-
-        // // 输入角度/数据
-        // std::cout << "请输入位置或速度数据 (角度制，浮点数): ";
-        // std::cin >> data;
-
-        // // 将输入命令转换为枚举类型
-        // command cmd = static_cast<command>(cmd_hex);
-
-        // std::vector<uint8_t> commands = pelco_d_command(cmd_hex, data);  // 地址1，上移，速度32
-
-
-        if (ctrl == 0)
-        {
-            command = pelco_d_command(RIGHT, 60);
-            ctrl = 1;
-        }
-        else if (ctrl == 1)
-        {
-            command = pelco_d_command(ASKTILT, 0);
-            ctrl = 2;
-        }
-        else if (ctrl == 2)
-        {
-            command = pelco_d_command(ASKPAN, 0);
-            ctrl = 1;
-        }
-
-        my_serial.write(command);
-
-        // 等待反馈并处理
-        read_from_serial_port(my_serial);
-
-        // ros::spinOnce();
-        loop_rate.sleep();
-        // if (test_i++ > 100)
-        //     break;
+        std::cout << "input command: " << std::endl;
+        scanf("%d%f", &cmd, &data);
+        // printf("%d %d\n", cmd, data);
+        std::vector<uint8_t> command = pelco_d_command(cmd, data);
+        command_queue.push(command);
+        std::cout << "command added to the queue." << std::endl;
+        ros::spinOnce();
     }
+
 
     //STOP
     ROS_INFO("Will stop.");
-    command[0] = 0xFF;              // 同步字节
-    command[1] = 0x01;              // 地址字节
-    command[2] = 0x00;              // 命令字节1
-    command[3] = STOP;
-    command[4] = 0x00;
-    command[5] = 0x00;
-    command[6] = 0x01 + STOP;
-    my_serial.write(command);
+    serial_port.write(pelco_d_command(STOP, 0x0));
 
     ROS_INFO("Stopped, and will close serial.");
-    my_serial.close();
+    serial_port.close();
     ROS_INFO("Serial closed.");
     return 0;
 }
