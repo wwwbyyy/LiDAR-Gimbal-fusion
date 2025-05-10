@@ -1,7 +1,7 @@
 # map_path: ../../../data/Changshu1120
-map_path: /home/loc/loc_ws/src/IVFC-Localization/src/iekf3d/data/SJTU1031
+map_path: /home/loc/loc_ws/data/SJTU1031
 
-pointcloud2_topic: /driver/hesai/pandar
+pointcloud2_topic: /registered_cloud
 gnss_topic: /Inertial/gps/fix
 imu_topic: /Inertial/imu/data
 speed_topic: /rock_can/speed_feedback
@@ -14,11 +14,14 @@ voxel_leaf:   2.0
 range_filter_min: 2.0
 range_filter_max: 200
 
-local_range:  300
+local_range:  200
 update_range: 80
 
 tracking_bad_fitness: 0.0
 
+# lidar -> body(gps)
+# lidar_extinct: [1.15, 0, 1.96, 0, 0, 1.5315] #hesai
+lidar_extinct: [0, 0, 0, 0, 0, 2.0551] #livox
 # # lidar -> body(gps)
 # lidar_extinct: [1.15, 0, 1.96, 0, 0, 1.5315] #hesai
 

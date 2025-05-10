@@ -390,7 +390,7 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
       }
 
       // Calculate the rotation in lidar point stamps.
-      #pragma omp parallel for
+      #pragma omp parallel for schedule(static)
       for (int i = 0; i < interval * cfg.frame_process_num; i+=interval)
       {
         if (!is_point_valid(p_cloud->points[i]))
@@ -428,11 +428,14 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
 
   sensor_msgs::PointCloud2 msg_out;
   Eigen::Matrix4f real_pose = Eigen::Matrix4f::Identity();
-  real_pose.topLeftCorner<3, 3>() = car2gimbal_rot *  q_rot_c_map.lower_bound(comp_head_time)->second.toRotationMatrix();
-  real_pose.topRightCorner<3, 1>() = trans_c + car2gimbal_trans;
+  // real_pose.topLeftCorner<3, 3>() = car2gimbal_rot *  q_rot_c_map.lower_bound(comp_head_time)->second.toRotationMatrix();
+  // real_pose.topRightCorner<3, 1>() = trans_c + car2gimbal_trans;
+  real_pose.topLeftCorner<3, 3>() = car2gimbal_rot.transpose();
+  real_pose.topRightCorner<3, 1>() = -car2gimbal_trans;
   pcl::transformPointCloud(*p_cloud_out, *p_cloud_out, real_pose);
   pcl::toROSMsg(*p_cloud_out, msg_out);
-  msg_out.header.frame_id = "map";
+  msg_out.header.frame_id = "iekf_map";
+  msg_out.header.stamp = ros::Time(frame_time);
   cloud_pub.publish(msg_out);
 
   static bool is_save = !cfg.is_save_cloud;//the '!' is right, but need some time to understand.
