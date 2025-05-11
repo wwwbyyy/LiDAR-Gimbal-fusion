@@ -8,6 +8,7 @@
 #include <std_msgs/Float64.h>
 
 #include "point_type.h"
+#include "GimbalCommand.h"
 
 enum Stategy{
   NONE,
@@ -18,6 +19,7 @@ enum Stategy{
 std::vector<SignPoint> signpoints;
 
 ros::Publisher control_yaw_pub;
+ros::Publisher control_msg_pub;
 
 //6 elements: Translation(m) + Euler[x,y,z]
 std::vector<double> lidar_extinct = {1.15, 0, 1.96, 0, 0, 1.5315};
@@ -103,6 +105,13 @@ void most_count_motion_strategy(const cyber_msgs::LocalizationEstimate::ConstPtr
   }
   last_yaw = yawMsg.data;
   control_yaw_pub.publish(yawMsg);
+
+  cyber_msgs::GimbalCommand cmdMsg;
+  cmdMsg.header.stamp = ros::Time::now();
+  cmdMsg.cmd = 0x4B;
+  cmdMsg.data = yawMsg.data;
+  control_msg_pub.publish(cmdMsg);
+
   ROS_INFO("Most count motion strategy applied, yaw: %f", yawMsg.data);
 }
 
@@ -167,6 +176,7 @@ int main(int argc, char** argv) {
     estimate_callback);
 
   control_yaw_pub = nh.advertise<std_msgs::Float64>("/control_yaw_ang", 10);
+  control_msg_pub = nh.advertise<cyber_msgs::GimbalCommand>("/gimbal_cmd", 10);
 
   ros::spin();
 

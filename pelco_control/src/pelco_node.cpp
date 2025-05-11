@@ -308,7 +308,10 @@ void process_commands() {
 
 void gimbalCmdCallback(cyber_msgs::GimbalCommandConstPtr msg) {
     std::vector<uint8_t> command = pelco_d_command(msg->cmd, msg->data);
-    command_queue.push(command);
+    {
+        std::lock_guard<std::mutex> lock(queue_mutex);
+        command_queue.push(command);
+    }
 }
 
 int main(int argc, char **argv) {
@@ -379,7 +382,10 @@ int main(int argc, char **argv) {
         scanf("%d%f", &cmd, &data);
         // printf("%d %d\n", cmd, data);
         std::vector<uint8_t> command = pelco_d_command(cmd, data);
-        command_queue.push(command);
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            command_queue.push(command);
+        }
         std::cout << "command added to the queue." << std::endl;
         ros::spinOnce();
     }
