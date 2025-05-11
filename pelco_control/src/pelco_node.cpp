@@ -122,6 +122,10 @@ float data_to_position(uint8_t cmd, uint8_t data0, uint8_t data1)
     pos += data1;
     float position = pos / 100.0;
     // printf("cmd = %d\n", cmd);
+    if (cmd == ASKPAN)
+    {
+        position = 360 - position;
+    }
     if (cmd == ASKTILT)
     {
         if (position > 180)
@@ -235,7 +239,7 @@ void read_angles() {
                 pan_angle = data_to_position(pan_feedback[3] - 0x08, pan_feedback[4], pan_feedback[5]);
                 std_msgs::Float64MultiArray pan_msg;
                 pan_msg.data.push_back(current_time_pan);
-                pan_msg.data.push_back(-pan_angle);
+                pan_msg.data.push_back(pan_angle);
                 pan_pub.publish(pan_msg);
                 // outputFilepan << current_time_pan - start_time << "\t" << -pan_angle << std::endl;
             }
@@ -307,7 +311,7 @@ void process_commands() {
 }
 
 void gimbalCmdCallback(cyber_msgs::GimbalCommandConstPtr msg) {
-    // std::cout << "here" << std::endl;
+    std::cout << "here" << std::endl;
     std::vector<uint8_t> command = pelco_d_command(msg->cmd, msg->data);
     {
         std::lock_guard<std::mutex> lock(queue_mutex);
@@ -362,7 +366,7 @@ int main(int argc, char **argv) {
     command = pelco_d_command(TILT, -20);
     serial_port.write(command);
     ros::Duration(0.5).sleep();
-    command = pelco_d_command(PAN, 0);
+    command = pelco_d_command(PAN, -50);
     serial_port.write(command);
     ros::Duration(0.5).sleep();
     ROS_INFO("Reset.");
