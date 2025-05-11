@@ -152,7 +152,7 @@ int main(int argc, char** argv) {
   ros::NodeHandle nh;
 
   // Load landmarks from the signpoints.csv file
-  std::ifstream file("data/signpoints.csv");
+  std::ifstream file("signpoints.csv");
   if (file.is_open()) {
     std::string line;
     std::getline(file, line); // Skip header

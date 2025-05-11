@@ -307,12 +307,19 @@ void process_commands() {
 }
 
 void gimbalCmdCallback(cyber_msgs::GimbalCommandConstPtr msg) {
+    // std::cout << "here" << std::endl;
     std::vector<uint8_t> command = pelco_d_command(msg->cmd, msg->data);
     {
         std::lock_guard<std::mutex> lock(queue_mutex);
         command_queue.push(command);
     }
 }
+
+// void gimbal_pan_callback(std_msgs::Float64MultiArrayConstPtr msg)
+// {
+//     std::cout << "here" << std::endl;
+
+// }
 
 int main(int argc, char **argv) {
     // 初始化ROS节点
@@ -344,6 +351,7 @@ int main(int argc, char **argv) {
     pan_pub = nh.advertise<std_msgs::Float64MultiArray>("/pan", 1);
     tilt_pub = nh.advertise<std_msgs::Float64MultiArray>("/tilt", 1);
     cmd_sub = nh.subscribe("/gimbal_cmd", 100, gimbalCmdCallback);
+    // ros::Subscriber pan_sub = nh.subscribe("/pan", 100, gimbal_pan_callback);
 
     start_time = ros::Time::now().toSec();
 
@@ -360,7 +368,7 @@ int main(int argc, char **argv) {
     ROS_INFO("Reset.");
 
     // 测试命令
-    command_queue.push(pelco_d_command(RIGHT, 50));
+    // command_queue.push(pelco_d_command(RIGHT, 50));
 
 
     // 启动读取角度线程
@@ -370,26 +378,33 @@ int main(int argc, char **argv) {
     std::thread command_thread(process_commands);
 
     // 等待线程结束
-    read_thread.join();
-    command_thread.join();
+    read_thread.detach();
+    command_thread.detach();
 
 
     // 手动读取命令
     uint8_t cmd;
     float data;
-    while (ros::ok()) {
-        std::cout << "input command: " << std::endl;
-        scanf("%d%f", &cmd, &data);
-        // printf("%d %d\n", cmd, data);
-        std::vector<uint8_t> command = pelco_d_command(cmd, data);
-        {
-            std::lock_guard<std::mutex> lock(queue_mutex);
-            command_queue.push(command);
-        }
-        std::cout << "command added to the queue." << std::endl;
-        ros::spinOnce();
-    }
+    // while (ros::ok()) {
+    //     std::cout << "input command: " << std::endl;
+    //     scanf("%d%f", &cmd, &data);
+    //     // printf("%d %d\n", cmd, data);
+    //     std::vector<uint8_t> command = pelco_d_command(cmd, data);
+    //     {
+    //         std::lock_guard<std::mutex> lock(queue_mutex);
+    //         command_queue.push(command);
+    //     }
+    //     std::cout << "command added to the queue." << std::endl;
+        // ros::spinOnce();
+    // }
+    ros::spin();
 
+    // ros::AsyncSpinner spinner(5);
+    // spinner.start();
+
+    // Your code here
+
+    // ros::waitForShutdown();
 
     //STOP
     ROS_INFO("Will stop.");
