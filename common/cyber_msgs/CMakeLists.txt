@@ -42,6 +42,7 @@ add_message_files(
   VehicleSpeedFeedback.msg
   ParkingTrajList.msg
   LqrDebug.msg
+  GimbalCommand.msg
 )
 
 ## Generate added messages and services with any dependencies listed here
