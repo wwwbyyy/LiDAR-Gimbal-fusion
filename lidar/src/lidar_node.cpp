@@ -281,7 +281,7 @@ void gimbal_pan_callback(std_msgs::Float32MultiArray msg)
   t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
   gimbal_horizontal_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
   // gimbal_horizontal_angle.header.stamp.fromSec(msg.data[0]);
-  gimbal_horizontal_angle.value = -msg.data[1] * M_PIq / 180.0; // Notice the sign.
+  gimbal_horizontal_angle.value = msg.data[1] * M_PIq / 180.0; // Notice the sign.
   gimbal_inited_h = true;
   h_ang_map[gimbal_horizontal_angle.header.stamp.toSec()] = gimbal_horizontal_angle.value;
 }
@@ -293,7 +293,7 @@ void gimbal_tilt_callback(std_msgs::Float32MultiArray msg)
   // gimbal_vertical_angle.header.stamp.fromSec(msg.data[0]);
   // ROS_INFO_STREAM("msg_time:" << std::fixed << std::setprecision(9) << msg.data[0]);
   // ROS_INFO_STREAM("Gimbal time:" << std::fixed << std::setprecision(9) << gimbal_vertical_angle.header.stamp.toSec());
-  gimbal_vertical_angle.value = (msg.data[1]-(-3)) * M_PIq / 180.0;
+  gimbal_vertical_angle.value = (msg.data[1]) * M_PIq / 180.0;
   gimbal_inited_v = true;
   v_ang_map[gimbal_vertical_angle.header.stamp.toSec()] = gimbal_vertical_angle.value;
 }
@@ -435,7 +435,7 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   pcl::transformPointCloud(*p_cloud_out, *p_cloud_out, real_pose);
   pcl::toROSMsg(*p_cloud_out, msg_out);
   msg_out.header.frame_id = "iekf_map";
-  msg_out.header.stamp = ros::Time(frame_time);
+  msg_out.header.stamp = ros::Time(comp_head_time);
   cloud_pub.publish(msg_out);
 
   static bool is_save = !cfg.is_save_cloud;//the '!' is right, but need some time to understand.
