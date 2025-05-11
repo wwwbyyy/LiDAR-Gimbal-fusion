@@ -1,6 +1,6 @@
 prog_cfg:
   # bag_file: !!path /home/loc/loc_ws/src/IVFC-Localization/data/11.13.bag
-  bag_file: /home/loc/loc_ws/src/IVFC-Localization/data/changshu2/changshu2.bag
+  bag_file: /home/loc/loc_ws/data/sjtu.bag
   bag_rate: 1
   queue_size: 100
 

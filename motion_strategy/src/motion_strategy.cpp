@@ -22,7 +22,7 @@ ros::Publisher control_yaw_pub;
 //6 elements: Translation(m) + Euler[x,y,z]
 std::vector<double> lidar_extinct = {1.15, 0, 1.96, 0, 0, 1.5315};
 
-Stategy motion_strategy = UNIFORM;
+Stategy motion_strategy = MOST_COUNT;
 
 void none_motion_strategy(const cyber_msgs::LocalizationEstimate::ConstPtr& msg) {
   // No motion strategy applied
@@ -90,12 +90,12 @@ void most_count_motion_strategy(const cyber_msgs::LocalizationEstimate::ConstPtr
   static double last_yaw = 0.0;
   std_msgs::Float64 yawMsg;
   yawMsg.data = vehicleYaw * 180.0 / M_PI;
-  double yawDiff = std::fmod(yawMsg.data - last_yaw + 3 * 180, 2 * 180) - 180;
-  if (yawDiff > 10) {
-    yawMsg.data = last_yaw + 10; // Increment by 10 degrees
-  } else if (yawDiff < -10) {
-    yawMsg.data = last_yaw - 10; // Decrement by 10 degrees
-  }
+  // double yawDiff = std::fmod(yawMsg.data - last_yaw + 3 * 180, 2 * 180) - 180;
+  // if (yawDiff > 10) {
+  //   yawMsg.data = last_yaw + 10; // Increment by 10 degrees
+  // } else if (yawDiff < -10) {
+  //   yawMsg.data = last_yaw - 10; // Decrement by 10 degrees
+  // }
   if (yawMsg.data > 180) {
     yawMsg.data -= 360; // Wrap around
   } else if (yawMsg.data < -180) {
@@ -109,6 +109,14 @@ void most_count_motion_strategy(const cyber_msgs::LocalizationEstimate::ConstPtr
 void estimate_callback(const cyber_msgs::LocalizationEstimate::ConstPtr& msg) {
   // Process the localization estimate message
   // Find the two nearest signpoints based on position
+  static int count_in = 0;
+  count_in++;
+  if(count_in % 50 == 0) {
+    ROS_INFO("Received localization estimate message");
+  }
+  else {
+    return;
+  }
 
   void (*motion_strategy_func)(const cyber_msgs::LocalizationEstimate::ConstPtr& msg) = nullptr;
 

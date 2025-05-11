@@ -1,7 +1,7 @@
 # map_path: ../../../data/Changshu1120
 map_path: /home/loc/loc_ws/data/SJTU1031
 
-pointcloud2_topic: /registered_cloud
+pointcloud2_topic: /hesai/simulated_smallfov_cloud
 gnss_topic: /Inertial/gps/fix
 imu_topic: /Inertial/imu/data
 speed_topic: /rock_can/speed_feedback
@@ -9,7 +9,7 @@ steer_topic: /rock_can/steer_feedback
 
 valid_gnss_status: [2]
 
-voxel_leaf:   2.0
+voxel_leaf:   1.5
 
 range_filter_min: 2.0
 range_filter_max: 200
@@ -20,8 +20,8 @@ update_range: 80
 tracking_bad_fitness: 0.0
 
 # lidar -> body(gps)
-# lidar_extinct: [1.15, 0, 1.96, 0, 0, 1.5315] #hesai
-lidar_extinct: [0, 0, 0, 0, 0, 2.0551] #livox
+lidar_extinct: [1.15, 0, 1.96, 0, 0, 1.5315] #hesai
+#lidar_extinct: [0, 0, 0, 0, 0, 2.0551] #livox
 
 # imu -> body(gps)
 imu_extinct: [0, 0, 1.5524763267948967]
