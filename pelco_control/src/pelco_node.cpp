@@ -89,10 +89,10 @@ float normalize_angle_tilt(float angle)
 float reverse_normalize_angle_tilt(float angle)
 {
     float normalized_angle = angle - tilt_zero_deg;
-    // if (normalized_angle < 0)
-    // {
-    //     normalized_angle = 360.0 + normalized_angle;
-    // }
+    if (normalized_angle < 0)
+    {
+        normalized_angle = 360.0 + normalized_angle;
+    }
     return normalized_angle;
 }
 
@@ -244,7 +244,7 @@ void read_angles() {
                 tilt_angle = data_to_position(tilt_feedback[3] - 0x08, tilt_feedback[4], tilt_feedback[5]);
                 std_msgs::Float64MultiArray tilt_msg;
                 tilt_msg.data.push_back(current_time_tilt);
-                tilt_msg.data.push_back(reverse_normalize_angle_tilt(tilt_angle));
+                tilt_msg.data.push_back(normalize_angle_tilt(tilt_angle));
                 tilt_pub.publish(tilt_msg);
                 // outputFiletilt << current_time_tilt - start_time << "\t" << reverse_normalize_angle_tilt(tilt_angle) << std::endl;
             }
