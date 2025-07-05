@@ -316,6 +316,8 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   }
   PROFILER(pointcloud2_callback);
   profiler_pointcloud2_callback.start();
+  PROFILER(1);
+  profiler_1.start();
   CloudType::Ptr p_cloud(new CloudType);
   pcl::moveFromROSMsg(*p_msg, (*p_cloud));
 
@@ -323,7 +325,6 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   // voxel.setInputCloud(p_cloud);
   // voxel.setRadiusSearch(cfg.voxel_leaf);
   // voxel.filter(*p_cloud);
-
   const static double point_time_start = ros::Time::now().toSec() - frame_T;
 
   double frame_time = t_cvter.convert("Avia_stamp", "ros_stamp", p_msg->header.stamp.toSec());
@@ -362,12 +363,19 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   Eigen::Matrix3f pitch_l_fr = Eigen::AngleAxisf((pitch_l_angle), Eigen::Vector3f::UnitY()).toRotationMatrix();
   Eigen::Matrix4f frame_init_pose = Eigen::Matrix4f::Identity();
   frame_init_pose.topLeftCorner<3, 3>() = init_rotation * pitch_l_fr * yaw_l_fr;
-
+  profiler_1.stop();
+  PROFILER(2);
+  profiler_2.start();
   CloudType::Ptr p_cloud_out(new CloudType);
   p_cloud_out->resize(p_cloud->size());
   int interval = std::floor(frame_point_num / cfg.frame_process_num);
   std::map<double, Eigen::Matrix3f> frame_imu_rot_map;
   auto it_imu = --imu_ang_v_vec.lower_bound(frame_time);
+  std::vector<Eigen::Matrix4f> pose_vec(frame_point_num, Eigen::Matrix4f::Identity());
+  profiler_2.stop();
+  PROFILER(3);
+  PROFILER(4);
+  PROFILER(5);
   switch (cfg.overlap_mode)
   {
     case STATIC_MODE:
@@ -376,6 +384,7 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
       break;
     case DYNAMIC_MODE:
       // Calculate the rotation in imu stamps.
+      profiler_3.start();
       while (it_imu != imu_ang_v_vec.end() && it_imu->first <= frame_time + frame_T)
       {
         if (it_imu == imu_ang_v_vec.begin())
@@ -388,7 +397,8 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         frame_imu_rot_map[it_imu->first] = rot_imu;
         ++it_imu;
       }
-
+      profiler_3.stop();
+      profiler_4.start();
       // Calculate the rotation in lidar point stamps.
       #pragma omp parallel for schedule(static)
       for (int i = 0; i < interval * cfg.frame_process_num; i+=interval)
@@ -414,18 +424,30 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
           int idx = i + j;
           if (!is_point_valid(p_cloud->points[idx]))
             continue;
-          PointType pt;
-          pt.getVector4fMap() = pose * p_cloud->points[idx].getVector4fMap(); 
-          pt.intensity = p_cloud->points[idx].intensity;
-          p_cloud_out->points[idx] = pt;
+          pose_vec[idx] = pose;
         }
+        
       }
+      profiler_4.stop();
+      profiler_5.start();
+      #pragma omp parallel for simd
+      for (int i = 0; i < frame_point_num; i++)
+      {
+        if (!is_point_valid(p_cloud->points[i]))
+          continue;
+        PointType pt;
+        pt.getVector4fMap() = pose_vec[i] * p_cloud->points[i].getVector4fMap(); 
+        pt.intensity = p_cloud->points[i].intensity;
+        p_cloud_out->points[i] = pt;
+      }
+      profiler_5.stop();
       break;
     default:
       ROS_INFO_STREAM("\033[91m" << "Invalid overlap mode." << "\033[0m");
       break;
   }
-
+  PROFILER(6);
+  profiler_6.start();
   sensor_msgs::PointCloud2 msg_out;
   Eigen::Matrix4f real_pose = Eigen::Matrix4f::Identity();
   // real_pose.topLeftCorner<3, 3>() = car2gimbal_rot *  q_rot_c_map.lower_bound(comp_head_time)->second.toRotationMatrix();
@@ -471,7 +493,7 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   // } else {
   //     std::cerr << "Failed to save point cloud." << std::endl;
   // }
-
+  profiler_6.stop();
   profiler_pointcloud2_callback.stop();
 }
 
