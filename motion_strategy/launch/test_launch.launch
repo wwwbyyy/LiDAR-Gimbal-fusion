@@ -1,4 +1,0 @@
-<launch>
-    <!-- Launch the lidar node -->
-    <node pkg="motion_strategy" type="sign_generation_node" name="sign_generation_node" output="screen"/>
-</launch>
