@@ -389,7 +389,7 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         ++it_imu;
       }
       // Calculate the rotation in lidar point stamps.
-      #pragma omp parallel for schedule(static)
+      //#pragma omp parallel for schedule(static)
       for (int i = 0; i < interval * cfg.frame_process_num; i+=interval)
       {
         if (!is_point_valid(p_cloud->points[i]))
@@ -418,7 +418,7 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         
       }
 
-      #pragma omp parallel for simd
+      //#pragma omp parallel for simd
       for (int i = 0; i < frame_point_num; i++)
       {
         if (!is_point_valid(p_cloud->points[i]))
@@ -447,28 +447,28 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   msg_out.header.stamp = ros::Time(comp_head_time);
 
   //add timestamp to each point
-  sensor_msgs::PointField timestamp_field;
-  timestamp_field.name = "timestamp";
-  timestamp_field.offset = msg_out.point_step; // Add at the end of each point
-  timestamp_field.datatype = sensor_msgs::PointField::FLOAT64; // Use double for timestamp
-  timestamp_field.count = 1;
+  // sensor_msgs::PointField timestamp_field;
+  // timestamp_field.name = "timestamp";
+  // timestamp_field.offset = msg_out.point_step; // Add at the end of each point
+  // timestamp_field.datatype = sensor_msgs::PointField::FLOAT64; // Use double for timestamp
+  // timestamp_field.count = 1;
 
-  msg_out.fields.push_back(timestamp_field);
-  msg_out.point_step += sizeof(double); // Update point step size
-  msg_out.row_step = msg_out.width * msg_out.point_step; // Update row step size
+  // msg_out.fields.push_back(timestamp_field);
+  // msg_out.point_step += sizeof(double); // Update point step size
+  // msg_out.row_step = msg_out.width * msg_out.point_step; // Update row step size
 
-  size_t new_data_size = msg_out.height * msg_out.row_step;
-  msg_out.data.resize(new_data_size);
+  // size_t new_data_size = msg_out.height * msg_out.row_step;
+  // msg_out.data.resize(new_data_size);
 
-  // Step 3: Assign timestamps to each point
-  sensor_msgs::PointCloud2Iterator<double> iter_timestamp(msg_out, "timestamp");
-  double current_time = comp_head_time; // Example: start time
-  double time_increment = Avia_dt; // Example: time increment per point
+  // // Step 3: Assign timestamps to each point
+  // sensor_msgs::PointCloud2Iterator<double> iter_timestamp(msg_out, "timestamp");
+  // double current_time = comp_head_time; // Example: start time
+  // double time_increment = Avia_dt; // Example: time increment per point
 
-  for (; iter_timestamp != iter_timestamp.end(); ++iter_timestamp) {
-      *iter_timestamp = current_time;
-      current_time += time_increment;
-  }
+  // for (; iter_timestamp != iter_timestamp.end(); ++iter_timestamp) {
+  //     *iter_timestamp = current_time;
+  //     current_time += time_increment;
+  // }
 
   cloud_pub.publish(msg_out);
 
@@ -551,8 +551,8 @@ int main(int argc, char **argv)
   // gimbal_sub_v = nh.subscribe("/vertical_angle", 1, &gimbal_vertical_callback);
   gimbal_sub_pan = nh.subscribe("pan", 4, &gimbal_pan_callback);
   gimbal_sub_tilt = nh.subscribe("tilt", 4, &gimbal_tilt_callback);
-  gnss_sub = nh.subscribe("/Inertial/gps/fix", 15, &gnss_callback);
-  car_imu_sub = nh.subscribe("/Inertial/imu/data", 15, &car_imu_callback);
+  // gnss_sub = nh.subscribe("/Inertial/gps/fix", 15, &gnss_callback);
+  // car_imu_sub = nh.subscribe("/Inertial/imu/data", 15, &car_imu_callback);
 
   cloud_pub = nh.advertise<sensor_msgs::PointCloud2>("/processed_cloud", 1);
 
