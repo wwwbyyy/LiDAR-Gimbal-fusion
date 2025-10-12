@@ -32,6 +32,12 @@ find_package(yaml-cpp REQUIRED)
 # find_package(TBB REQUIRED)
 find_package(OpenMP REQUIRED)
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG")
+add_compile_definitions(
+  EIGEN_NO_DEBUG
+  EIGEN_FAST_MATH)
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
+
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
 ## See http://ros.org/doc/api/catkin/html/user_guide/setup_dot_py.html

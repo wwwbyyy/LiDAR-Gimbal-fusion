@@ -14,6 +14,7 @@
 #include <gps_common/conversions.h>
 #include <oneapi/tbb.h>
 #include <pcl/common/common.h>
+#include <pcl/common/transforms.h>
 #include <pcl/features/normal_3d_omp.h>
 #include <pcl/filters/uniform_sampling.h>
 #include <pcl/filters/voxel_grid.h>
@@ -610,6 +611,16 @@ void deskew_pointcloud(pcl::PointCloud<pcl::PointXYZ> &points,
         Sophus::SE3d::exp(-velocity * stamps[i]).cast<float>() *
         points[i].getVector3fMap();
   }
+
+  // Only linear velocity for deskew
+
+  // Sophus::SE3d::Tangent velocity_zero_angular = velocity;
+  // velocity_zero_angular.tail<3>().setZero();
+  // for (int i = 0; i < points_num; i++) {
+  //   points[i].getVector3fMap() =
+  //       Sophus::SE3d::exp(-velocity_zero_angular * stamps[i]).cast<float>() *
+  //       points[i].getVector3fMap();
+  // }
 }
 
 void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg) {
@@ -625,6 +636,14 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg) {
   pcl::PointCloud<pcl::PointXYZ>::Ptr p_cloud(
       new pcl::PointCloud<pcl::PointXYZ>);
   pcl::fromROSMsg(*p_msg, (*p_cloud));
+
+  // apply extinct
+  ROS_DEBUG("apply extinct");
+  // for (auto &pt : *p_cloud) {
+  //   pt.getVector3fMap() = Tbl.cast<float>() * pt.getVector3fMap();
+  // }
+  pcl::transformPointCloud(*p_cloud, *p_cloud, Tbl.cast<float>().matrix());
+
   // deskew
   if (!enable_deskew) {
     ROS_WARN_ONCE("pointcloud2 has no field 'timestamp', deskew turn off");
@@ -650,11 +669,6 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg) {
     (*p_cloud)[points_num++] = pt;
   }
   p_cloud->resize(points_num);
-  // apply extinct
-  ROS_DEBUG("apply extinct");
-  for (auto &pt : *p_cloud) {
-    pt.getVector3fMap() = Tbl.cast<float>() * pt.getVector3fMap();
-  }
 
   if (wait_heading || wait_position) {
     // std::cout << "waiting initialposes..." << std::endl;

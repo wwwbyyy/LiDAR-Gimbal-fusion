@@ -19,6 +19,7 @@
 #include <geographic_msgs/GeoPointStamped.h>
 #include <sensor_msgs/NavSatFix.h>
 #include <sensor_msgs/Imu.h>
+#include <sensor_msgs/point_cloud2_iterator.h>
 #include <std_msgs/Float32MultiArray.h>
 #include <std_msgs/Float64MultiArray.h>
 #include <tf2_ros/transform_broadcaster.h>
@@ -316,8 +317,6 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   }
   PROFILER(pointcloud2_callback);
   profiler_pointcloud2_callback.start();
-  PROFILER(1);
-  profiler_1.start();
   CloudType::Ptr p_cloud(new CloudType);
   pcl::moveFromROSMsg(*p_msg, (*p_cloud));
 
@@ -363,19 +362,12 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   Eigen::Matrix3f pitch_l_fr = Eigen::AngleAxisf((pitch_l_angle), Eigen::Vector3f::UnitY()).toRotationMatrix();
   Eigen::Matrix4f frame_init_pose = Eigen::Matrix4f::Identity();
   frame_init_pose.topLeftCorner<3, 3>() = init_rotation * pitch_l_fr * yaw_l_fr;
-  profiler_1.stop();
-  PROFILER(2);
-  profiler_2.start();
   CloudType::Ptr p_cloud_out(new CloudType);
   p_cloud_out->resize(p_cloud->size());
   int interval = std::floor(frame_point_num / cfg.frame_process_num);
   std::map<double, Eigen::Matrix3f> frame_imu_rot_map;
   auto it_imu = --imu_ang_v_vec.lower_bound(frame_time);
   std::vector<Eigen::Matrix4f> pose_vec(frame_point_num, Eigen::Matrix4f::Identity());
-  profiler_2.stop();
-  PROFILER(3);
-  PROFILER(4);
-  PROFILER(5);
   switch (cfg.overlap_mode)
   {
     case STATIC_MODE:
@@ -384,7 +376,6 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
       break;
     case DYNAMIC_MODE:
       // Calculate the rotation in imu stamps.
-      profiler_3.start();
       while (it_imu != imu_ang_v_vec.end() && it_imu->first <= frame_time + frame_T)
       {
         if (it_imu == imu_ang_v_vec.begin())
@@ -397,8 +388,6 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         frame_imu_rot_map[it_imu->first] = rot_imu;
         ++it_imu;
       }
-      profiler_3.stop();
-      profiler_4.start();
       // Calculate the rotation in lidar point stamps.
       #pragma omp parallel for schedule(static)
       for (int i = 0; i < interval * cfg.frame_process_num; i+=interval)
@@ -428,8 +417,7 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         }
         
       }
-      profiler_4.stop();
-      profiler_5.start();
+
       #pragma omp parallel for simd
       for (int i = 0; i < frame_point_num; i++)
       {
@@ -440,24 +428,48 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
         pt.intensity = p_cloud->points[i].intensity;
         p_cloud_out->points[i] = pt;
       }
-      profiler_5.stop();
+
       break;
     default:
       ROS_INFO_STREAM("\033[91m" << "Invalid overlap mode." << "\033[0m");
       break;
   }
-  PROFILER(6);
-  profiler_6.start();
+
   sensor_msgs::PointCloud2 msg_out;
-  Eigen::Matrix4f real_pose = Eigen::Matrix4f::Identity();
-  // real_pose.topLeftCorner<3, 3>() = car2gimbal_rot *  q_rot_c_map.lower_bound(comp_head_time)->second.toRotationMatrix();
-  // real_pose.topRightCorner<3, 1>() = trans_c + car2gimbal_trans;
-  real_pose.topLeftCorner<3, 3>() = car2gimbal_rot.transpose();
-  real_pose.topRightCorner<3, 1>() = -car2gimbal_trans;
-  pcl::transformPointCloud(*p_cloud_out, *p_cloud_out, real_pose);
+  // Eigen::Matrix4f real_pose = Eigen::Matrix4f::Identity();
+  // // real_pose.topLeftCorner<3, 3>() = car2gimbal_rot *  q_rot_c_map.lower_bound(comp_head_time)->second.toRotationMatrix();
+  // // real_pose.topRightCorner<3, 1>() = trans_c + car2gimbal_trans;
+  // real_pose.topLeftCorner<3, 3>() = car2gimbal_rot.transpose();
+  // real_pose.topRightCorner<3, 1>() = -car2gimbal_trans;
+  // pcl::transformPointCloud(*p_cloud_out, *p_cloud_out, real_pose);
   pcl::toROSMsg(*p_cloud_out, msg_out);
   msg_out.header.frame_id = "iekf_map";
   msg_out.header.stamp = ros::Time(comp_head_time);
+
+  //add timestamp to each point
+  sensor_msgs::PointField timestamp_field;
+  timestamp_field.name = "timestamp";
+  timestamp_field.offset = msg_out.point_step; // Add at the end of each point
+  timestamp_field.datatype = sensor_msgs::PointField::FLOAT64; // Use double for timestamp
+  timestamp_field.count = 1;
+
+  msg_out.fields.push_back(timestamp_field);
+  msg_out.point_step += sizeof(double); // Update point step size
+  msg_out.row_step = msg_out.width * msg_out.point_step; // Update row step size
+
+  size_t new_data_size = msg_out.height * msg_out.row_step;
+  msg_out.data.resize(new_data_size);
+
+  // Step 3: Assign timestamps to each point
+  sensor_msgs::PointCloud2Iterator<double> iter_timestamp(msg_out, "timestamp");
+  double current_time = comp_head_time; // Example: start time
+  double time_increment = Avia_dt; // Example: time increment per point
+
+  for (; iter_timestamp != iter_timestamp.end(); ++iter_timestamp) {
+      *iter_timestamp = current_time;
+      current_time += time_increment;
+  }
+
   cloud_pub.publish(msg_out);
 
   static bool is_save = !cfg.is_save_cloud;//the '!' is right, but need some time to understand.
@@ -493,7 +505,7 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   // } else {
   //     std::cerr << "Failed to save point cloud." << std::endl;
   // }
-  profiler_6.stop();
+
   profiler_pointcloud2_callback.stop();
 }
 
@@ -542,7 +554,7 @@ int main(int argc, char **argv)
   gnss_sub = nh.subscribe("/Inertial/gps/fix", 15, &gnss_callback);
   car_imu_sub = nh.subscribe("/Inertial/imu/data", 15, &car_imu_callback);
 
-  cloud_pub = nh.advertise<sensor_msgs::PointCloud2>("/registered_cloud", 1);
+  cloud_pub = nh.advertise<sensor_msgs::PointCloud2>("/processed_cloud", 1);
 
   ros::spin();
 

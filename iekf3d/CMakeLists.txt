@@ -41,6 +41,12 @@ find_package(TBB REQUIRED)
 
 find_package(Sophus REQUIRED)
 find_package(tsl-robin-map REQUIRED)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG")
+add_compile_definitions(
+  EIGEN_NO_DEBUG
+  EIGEN_FAST_MATH)
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
 # include(cmake/CPM.cmake)
 # CPMAddPackage(
 #     NAME Sophus
