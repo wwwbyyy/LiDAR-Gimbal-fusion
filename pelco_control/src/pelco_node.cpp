@@ -164,8 +164,14 @@ std::vector<uint8_t> pelco_d_command(uint8_t cmd, float data)
             data_bytes = position_to_data(cmd, data);
             break;
         case UP:
+            data_bytes = speed_to_data(data, data);
+            break;
         case DOWN:
+            data_bytes = speed_to_data(data, data);
+            break;
         case LEFT:
+            data_bytes = speed_to_data(data, data);
+            break;
         case RIGHT:
             data_bytes = speed_to_data(data, data);
             break;
