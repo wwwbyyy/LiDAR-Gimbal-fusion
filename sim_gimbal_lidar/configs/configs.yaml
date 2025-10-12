@@ -1,0 +1,3 @@
+lidar_topic: "/driver/hesai/pandar"
+yaw_deg_topic: "/gimbal/yaw/angle"
+yaw_deg_angular_velocity_topic: "/gimbal/yaw/angular_velocity"
