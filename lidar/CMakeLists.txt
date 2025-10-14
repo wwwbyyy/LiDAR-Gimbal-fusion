@@ -30,7 +30,7 @@ find_package(PCL 1.8 REQUIRED COMPONENTS common io kdtree search)
 find_package(yaml-cpp REQUIRED)
 #find_package(GeographicLib REQUIRED)
 # find_package(TBB REQUIRED)
-find_package(OpenMP REQUIRED)
+#find_package(OpenMP REQUIRED)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG")
 add_compile_definitions(
@@ -175,7 +175,7 @@ target_link_libraries(${PROJECT_NAME}_node
   ${YAML_CPP_LIBRARIES}
   #${GeographicLib_LIBRARIES}
   # TBB::tbb
-  OpenMP::OpenMP_CXX
+  # OpenMP::OpenMP_CXX
 )
 
 #############

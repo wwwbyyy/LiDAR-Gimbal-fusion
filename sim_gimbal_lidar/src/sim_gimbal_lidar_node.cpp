@@ -141,8 +141,8 @@ int main(int argc, char** argv)
   yaw_deg_angular_velocity_sub = nh.subscribe<std_msgs::Float64MultiArray>(cfg.yaw_deg_angular_velocity_topic, 10, yaw_deg_angular_velocity_callback);
   cloud_sub = nh.subscribe<sensor_msgs::PointCloud2>(cfg.lidar_topic, 10, pointcloud2_callback);
 
-  yaw_deg_pub = nh.advertise<std_msgs::Float64MultiArray>("sim_gimbal_lidar/yaw_deg", 10);
-  cloud_pub = nh.advertise<sensor_msgs::PointCloud2>("sim_gimbal_lidar/pointcloud", 10);
+  yaw_deg_pub = nh.advertise<std_msgs::Float64MultiArray>("/sim_gimbal_lidar/yaw_deg", 10);
+  cloud_pub = nh.advertise<sensor_msgs::PointCloud2>("/sim_gimbal_lidar/pointcloud", 10);
 
   ros::spin();
 
