@@ -1,10 +1,3 @@
-<style>
-img{
-    width: 60%;
-    padding-left: 20%;
-}
-</style>
-
 # 随动激光雷达算法模块
 
 ## 总体框架
