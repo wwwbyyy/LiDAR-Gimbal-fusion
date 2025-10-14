@@ -13,7 +13,7 @@ img{
 
 总体框架如下：
 
-![总体框架图](pic/image1.png)
+<img src="pic/image1.png" alt="总体框架图" style="width:60%; auto; display:block;">
 
 代码中 `iekf3d` 为**定位模块**，包含外部传感器定位、激光雷达定位和两者的融合定位；`lidar` 为**点云预处理模块**；`pelco_control` 为**云台控制和反馈模块**。
 
@@ -39,11 +39,11 @@ img{
 
 实车项目中的关键 ROS 消息流程如下：
 
-![实车 ROS 消息流程图](pic/image2.png)
+<img src="pic/image2.png" alt="实车 ROS 消息流程图" style="width:60%; auto; display:block;">
 
 虚拟随动的关键 ROS 消息流程如下：
 
-![虚拟随动 ROS 消息流程图](pic/image3.png)
+<img src="pic/image3.png" alt="虚拟随动 ROS 消息流程图" style="width:60%; auto; display:block;">
 
 ## 开发方法
 
