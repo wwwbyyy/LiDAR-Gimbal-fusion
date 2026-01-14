@@ -131,10 +131,12 @@ struct ProgramConfigs{
   bool is_save_cloud;
 
   std::vector<double> car2gimbal_transformation;
+
+  std::vector<double> device_bias_trans;
 } cfg;
 REFLCPP_METAINFO(ProgramConfigs, 
 ,(overlap_mode)(voxel_leaf)(total_time_s)(wait_time_s)(frame_process_num)
-(is_save_cloud)(car2gimbal_transformation));
+(is_save_cloud)(car2gimbal_transformation)(device_bias_trans));
 
 // ros::Subscriber gimbal_sub_h;
 // ros::Subscriber gimbal_sub_v;
@@ -173,7 +175,7 @@ std::map<double, Eigen::Quaternionf> q_rot_c_map;
 const float pitch_shift = (0 - (0)) * M_PI / 180.0;
 const float yaw_shift = (0 - (0)) * M_PI / 180.0;
 const Eigen::Matrix3f init_rotation = Eigen::AngleAxisf(M_PI / 2, Eigen::Vector3f::UnitX()).toRotationMatrix();
-const Eigen::Vector3f init_translation = Eigen::Vector3f(0.05, 0, 0);
+const Eigen::Vector3f init_translation = Eigen::Zero();
 const double Avia_dt = 4.0 / 960000;
 const double frame_T = 0.1;
 const int frame_point_num = 24000;
@@ -543,6 +545,11 @@ int main(int argc, char **argv)
   car2gimbal_rot = Eigen::AngleAxisf(cfg.car2gimbal_transformation[3] / 180 * M_PI, Eigen::Vector3f::UnitZ()).toRotationMatrix()
                   * Eigen::AngleAxisf(cfg.car2gimbal_transformation[4] / 180 * M_PI, Eigen::Vector3f::UnitY()).toRotationMatrix()
                   * Eigen::AngleAxisf(cfg.car2gimbal_transformation[5] / 180 * M_PI, Eigen::Vector3f::UnitX()).toRotationMatrix();
+
+  init_translation = Eigen::Vector3f(
+    cfg.device_bias_trans[0], 
+    cfg.device_bias_trans[1], 
+    cfg.device_bias_trans[2]);
 
   // Notice the queue sizes.
   imu_sub = nh.subscribe("/livox/imu", 25, &imu_callback);

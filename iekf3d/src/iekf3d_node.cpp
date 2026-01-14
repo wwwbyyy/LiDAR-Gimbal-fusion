@@ -124,10 +124,11 @@ REFLCPP_METAINFO(
 struct MapInfo {
   std::string points_file;
   std::string normal_file;
+  std::string viz_file;
   std::vector<double> utm_origin;
   std::string zone;
 } map_info;
-REFLCPP_METAINFO(MapInfo, , (points_file)(normal_file)(utm_origin)(zone))
+REFLCPP_METAINFO(MapInfo, , (points_file)(normal_file)(viz_file)(utm_origin)(zone))
 
 ros::Subscriber cloud_sub;
 ros::Subscriber gnss_sub;
@@ -158,6 +159,7 @@ std::mutex map_mtx;
 
 pcl::PointCloud<pcl::Normal>::Ptr p_normal;
 pcl::PointCloud<pcl::PointXYZ>::Ptr p_map;
+pcl::PointCloud<pcl::PointXYZ>::Ptr p_viz;
 pcl::search::Search<pcl::PointXYZ>::Ptr p_global_search;
 pcl::search::Search<pcl::PointXYZ>::Ptr p_local_search;
 
@@ -1025,6 +1027,8 @@ int main(int argc, char *argv[]) {
 
   p_map.reset(new pcl::PointCloud<pcl::PointXYZ>);
   p_normal.reset(new pcl::PointCloud<pcl::Normal>);
+  p_viz.reset(new pcl::PointCloud<pcl::PointXYZ>);
+
   ROS_INFO("utm_origin: [%lf, %lf]", map_info.utm_origin[0],
            map_info.utm_origin[1]);
   ROS_INFO("loading map...");
@@ -1077,7 +1081,14 @@ int main(int argc, char *argv[]) {
   tf_pub = new tf2_ros::TransformBroadcaster;
 
   sensor_msgs::PointCloud2 map_msg;
-  pcl::toROSMsg(*p_map, map_msg);
+  // pcl::toROSMsg(*p_map, map_msg);
+  // map_msg.header.frame_id = "iekf_map";
+  // global_map_pub.publish(map_msg);
+
+  pcl::io::load(fs::path(cfg.map_path) / map_info.viz_file, *p_viz);
+  IVAR(p_viz->size());
+
+  pcl::toROSMsg(*p_viz, map_msg);
   map_msg.header.frame_id = "iekf_map";
   global_map_pub.publish(map_msg);
 
