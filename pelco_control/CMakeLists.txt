@@ -11,11 +11,12 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   serial
   std_msgs
+  roslib
 )
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
-
+find_package(yaml-cpp REQUIRED)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
 ## modules and global scripts declared therein get installed
@@ -118,6 +119,7 @@ catkin_package(
 include_directories(
   include
   ${catkin_INCLUDE_DIRS}
+  ${YAML_CPP_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
@@ -148,6 +150,7 @@ add_executable(${PROJECT_NAME}_node src/pelco_node.cpp)
 ## Specify libraries to link a library or executable target against
 target_link_libraries(${PROJECT_NAME}_node
   ${catkin_LIBRARIES}
+  ${YAML_CPP_LIBRARIES}
 )
 
 #############

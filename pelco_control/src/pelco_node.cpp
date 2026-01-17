@@ -15,6 +15,9 @@
 #include <queue>
 #include <chrono>
 #include <iostream>
+
+#include "reflcpp/core.h"
+#include "reflcpp/yaml.h"
 #include "GimbalCommand.h"
 
 typedef enum command
@@ -40,6 +43,12 @@ typedef enum serial_port_status
     READ = 1
 };
 
+struct ProgramConfigs{
+    float tilt_zero_deg;
+    int baud_rate;
+} cfg;
+REFLCPP_METAINFO(ProgramConfigs, ,(tilt_zero_deg)(baud_rate));
+
 // 定义全局变量
 ros::Publisher msg_pub;
 ros::Publisher pan_pub;
@@ -50,7 +59,7 @@ double start_time;
 // std::ofstream outputFiletilt("feedback_data_tilt.csv", std::ios::app);
 const size_t read_buffer_size = 7; // PELCO-D 协议反馈数据长度
 
-const float tilt_zero_deg = -3; // the realistic zero degree of tilt
+float tilt_zero_deg = 0; // the realistic zero degree of tilt
 float pan_angle = 0;
 float tilt_angle = 0;
 
@@ -77,7 +86,7 @@ float normalize_angle_tilt(float angle)
 {
     // 0水平，向下0-90，向上359-270，留5度限位
     float normalized_angle = std::max(std::min(angle, 85.0f), -85.0f);
-    normalized_angle = normalized_angle + tilt_zero_deg;
+    normalized_angle = normalized_angle - tilt_zero_deg;
     normalized_angle = std::max(std::min(normalized_angle, 85.0f), -85.0f);
     if (normalized_angle < 0) {
         normalized_angle = 360.0 + normalized_angle;
@@ -88,7 +97,7 @@ float normalize_angle_tilt(float angle)
 
 float reverse_normalize_angle_tilt(float angle)
 {
-    float normalized_angle = angle - tilt_zero_deg;
+    float normalized_angle = angle + tilt_zero_deg;
     if (normalized_angle < 0)
     {
         normalized_angle = 360.0 + normalized_angle;
@@ -338,9 +347,17 @@ int main(int argc, char **argv) {
 
     //signal(SIGINT, signalHandler);
 
+    // 读取配置文件
+    std::string config_file = ros::package::getPath("pelco_control") + "/configs/configs.yaml";
+    cfg = YAML::LoadFile(config_file).as<ProgramConfigs>();
+
+    tilt_zero_deg = cfg.tilt_zero_deg;
+    std::cout << "tilt_zero_deg: " << tilt_zero_deg << std::endl;
+    std::cout << "baud_rate: " << cfg.baud_rate << std::endl;
+    
     // 配置串口
     serial_port.setPort("/dev/ttyUSB0");  // 修改为实际的设备名
-    serial_port.setBaudrate(38400);
+    serial_port.setBaudrate(cfg.baud_rate);
     serial::Timeout to = serial::Timeout::simpleTimeout(50);
     serial_port.setTimeout(to);
 
