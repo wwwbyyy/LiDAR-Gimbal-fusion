@@ -175,7 +175,7 @@ std::map<double, Eigen::Quaternionf> q_rot_c_map;
 const float pitch_shift = (0 - (0)) * M_PI / 180.0;
 const float yaw_shift = (0 - (0)) * M_PI / 180.0;
 const Eigen::Matrix3f init_rotation = Eigen::AngleAxisf(M_PI / 2, Eigen::Vector3f::UnitX()).toRotationMatrix();
-const Eigen::Vector3f init_translation = Eigen::Zero();
+Eigen::Vector3f init_translation = Eigen::Vector3f(0.0, 0.0, 0.0);
 const double Avia_dt = 4.0 / 960000;
 const double frame_T = 0.1;
 const int frame_point_num = 24000;
