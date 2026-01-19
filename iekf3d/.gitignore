@@ -8,3 +8,5 @@ data/*/*.png
 data/*/*.jpg
 data/*/*.yaml
 data/*/*.txt
+
+results/

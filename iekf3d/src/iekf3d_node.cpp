@@ -2,6 +2,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <execution>
 #include <filesystem>
 #include <mutex>
@@ -14,7 +15,6 @@
 #include <gps_common/conversions.h>
 #include <oneapi/tbb.h>
 #include <pcl/common/common.h>
-#include <pcl/common/transforms.h>
 #include <pcl/features/normal_3d_omp.h>
 #include <pcl/filters/uniform_sampling.h>
 #include <pcl/filters/voxel_grid.h>
@@ -160,6 +160,7 @@ std::mutex map_mtx;
 pcl::PointCloud<pcl::Normal>::Ptr p_normal;
 pcl::PointCloud<pcl::PointXYZ>::Ptr p_map;
 pcl::PointCloud<pcl::PointXYZ>::Ptr p_viz;
+
 pcl::search::Search<pcl::PointXYZ>::Ptr p_global_search;
 pcl::search::Search<pcl::PointXYZ>::Ptr p_local_search;
 
@@ -201,6 +202,8 @@ void local_map_update(const std::atomic_bool &require_stop = false) {
     local_map_center = pt.getVector3fMap().cast<double>();
 
     ROS_INFO("updating local map...");
+    std::cout << local_map_center[0] <<',' << local_map_center[1] << ',' << local_map_center[2] << std::endl;
+    // ROS_INFO("d%, d%, d%", local_map_center[0], local_map_center[1], local_map_center[2]);
     boost::shared_ptr<std::vector<int>> p_indices(new std::vector<int>);
     std::vector<float> unused;
     p_global_search->radiusSearch(pt, cfg.local_range, *p_indices, unused);
@@ -613,16 +616,6 @@ void deskew_pointcloud(pcl::PointCloud<pcl::PointXYZ> &points,
         Sophus::SE3d::exp(-velocity * stamps[i]).cast<float>() *
         points[i].getVector3fMap();
   }
-
-  // Only linear velocity for deskew
-
-  // Sophus::SE3d::Tangent velocity_zero_angular = velocity;
-  // velocity_zero_angular.tail<3>().setZero();
-  // for (int i = 0; i < points_num; i++) {
-  //   points[i].getVector3fMap() =
-  //       Sophus::SE3d::exp(-velocity_zero_angular * stamps[i]).cast<float>() *
-  //       points[i].getVector3fMap();
-  // }
 }
 
 void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg) {
@@ -638,14 +631,6 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg) {
   pcl::PointCloud<pcl::PointXYZ>::Ptr p_cloud(
       new pcl::PointCloud<pcl::PointXYZ>);
   pcl::fromROSMsg(*p_msg, (*p_cloud));
-
-  // apply extinct
-  ROS_DEBUG("apply extinct");
-  // for (auto &pt : *p_cloud) {
-  //   pt.getVector3fMap() = Tbl.cast<float>() * pt.getVector3fMap();
-  // }
-  pcl::transformPointCloud(*p_cloud, *p_cloud, Tbl.cast<float>().matrix());
-
   // deskew
   if (!enable_deskew) {
     ROS_WARN_ONCE("pointcloud2 has no field 'timestamp', deskew turn off");
@@ -671,6 +656,11 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg) {
     (*p_cloud)[points_num++] = pt;
   }
   p_cloud->resize(points_num);
+  // apply extinct
+  ROS_DEBUG("apply extinct");
+  for (auto &pt : *p_cloud) {
+    pt.getVector3fMap() = Tbl.cast<float>() * pt.getVector3fMap();
+  }
 
   if (wait_heading || wait_position) {
     // std::cout << "waiting initialposes..." << std::endl;
@@ -884,6 +874,7 @@ void initialpose_callback(geometry_msgs::PoseWithCovarianceStamped msg) {
 }
 
 void gnss_callback(sensor_msgs::NavSatFix msg) {
+  // wait_position = true; // test
   if (!wait_position) return;
   if (std::find(cfg.valid_gnss_status.begin(), cfg.valid_gnss_status.end(),
                 msg.status.status) == cfg.valid_gnss_status.end()) {
@@ -927,6 +918,7 @@ void gnss_callback(sensor_msgs::NavSatFix msg) {
 }
 
 void imu_callback(sensor_msgs::Imu msg) {
+  // wait_heading = true; //test
   if (wait_heading) {
     Eigen::Quaterniond q;
     q.x() = msg.orientation.x;
@@ -937,7 +929,7 @@ void imu_callback(sensor_msgs::Imu msg) {
     pose.so3() = Tbi.matrix() * q;
     X.pose.so3() = pose.so3();
     wait_heading = false;
-    ROS_INFO("heading update by gps.");
+    ROS_INFO("heading update by Imu.");
 
     if (!wait_position && !wait_heading) {
       Eigen::Quaterniond q(pose.so3().unit_quaternion());
@@ -996,16 +988,19 @@ int main(int argc, char *argv[]) {
     cfg.map_path = cfg_path.parent_path() / cfg.map_path;
   }
   map_info = YAML::LoadFile(fs::path(cfg.map_path) / "info.yaml").as<MapInfo>();
-  std::cout << "here";
+
   if (!cfg.lidar_extinct.empty()) {
     ROS_ASSERT(cfg.lidar_extinct.size() == 6);
     Tbl.translation().x() = cfg.lidar_extinct[0];
     Tbl.translation().y() = cfg.lidar_extinct[1];
     Tbl.translation().z() = cfg.lidar_extinct[2];
     Tbl.so3() =
-        (Eigen::AngleAxisd(cfg.lidar_extinct[3], Eigen::Vector3d::UnitX()) *
-         Eigen::AngleAxisd(cfg.lidar_extinct[4], Eigen::Vector3d::UnitY()) *
-         Eigen::AngleAxisd(cfg.lidar_extinct[5], Eigen::Vector3d::UnitZ()))
+        (Eigen::AngleAxisd(cfg.lidar_extinct[3] * M_PI / 180.0,
+                           Eigen::Vector3d::UnitX()) *
+         Eigen::AngleAxisd(cfg.lidar_extinct[4] * M_PI / 180.0,
+                           Eigen::Vector3d::UnitY()) *
+         Eigen::AngleAxisd(cfg.lidar_extinct[5] * M_PI / 180.0,
+                           Eigen::Vector3d::UnitZ()))
             .matrix();
   }
   if (!cfg.imu_extinct.empty()) {
@@ -1026,14 +1021,19 @@ int main(int argc, char *argv[]) {
       cfg.iekf.angular_velocity_std * cfg.iekf.angular_velocity_std;
 
   p_map.reset(new pcl::PointCloud<pcl::PointXYZ>);
-  p_normal.reset(new pcl::PointCloud<pcl::Normal>);
   p_viz.reset(new pcl::PointCloud<pcl::PointXYZ>);
 
+  p_normal.reset(new pcl::PointCloud<pcl::Normal>);
   ROS_INFO("utm_origin: [%lf, %lf]", map_info.utm_origin[0],
            map_info.utm_origin[1]);
   ROS_INFO("loading map...");
   pcl::io::load(fs::path(cfg.map_path) / map_info.points_file, *p_map);
   IVAR(p_map->size());
+  pcl::io::load(fs::path(cfg.map_path) / map_info.viz_file, *p_viz);
+  IVAR(p_viz->size());
+
+  ROS_INFO("p_map->size()", p_map->size());
+
   std::string map_normal_file = fs::path(cfg.map_path) / map_info.normal_file;
   if (fs::exists(map_normal_file)) {
     pcl::io::load(map_normal_file, *p_normal);
@@ -1072,8 +1072,8 @@ int main(int argc, char *argv[]) {
       nh.advertise<sensor_msgs::PointCloud2>("/iekf3d/registrationd_cloud", 1);
   global_map_pub =
       nh.advertise<sensor_msgs::PointCloud2>("/iekf3d/global_map", 1, true);
-  local_map_pub =
-      nh.advertise<sensor_msgs::PointCloud2>("/iekf3d/local_map", 1, true);
+  // local_map_pub =
+  //   nh.advertise<sensor_msgs::PointCloud2>("/iekf3d/local_map", 1, true);
   odometry_pub = nh.advertise<nav_msgs::Odometry>("/iekf3d/odometry", 1);
   estimate_pub = nh.advertise<cyber_msgs::LocalizationEstimate>(
       "/localization/estimation", 1);
@@ -1081,12 +1081,16 @@ int main(int argc, char *argv[]) {
   tf_pub = new tf2_ros::TransformBroadcaster;
 
   sensor_msgs::PointCloud2 map_msg;
-  // pcl::toROSMsg(*p_map, map_msg);
-  // map_msg.header.frame_id = "iekf_map";
-  // global_map_pub.publish(map_msg);
+  //down_sample
+  // pcl::PointCloud<pcl::PointXYZ> map ;
+  // pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
+  // voxel_filter.setInputCloud(p_map);
+  // voxel_filter.setLeafSize(0.1f,0.1f,0.1f);
+  // pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_cloud(new pcl::PointCloud<pcl::PointXYZ>);
+  // voxel_filter.filter(*filtered_cloud);
+  // pcl::toROSMsg(*filtered_cloud, map_msg);
 
-  pcl::io::load(fs::path(cfg.map_path) / map_info.viz_file, *p_viz);
-  IVAR(p_viz->size());
+
 
   pcl::toROSMsg(*p_viz, map_msg);
   map_msg.header.frame_id = "iekf_map";

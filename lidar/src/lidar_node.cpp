@@ -279,7 +279,7 @@ void car_imu_callback(sensor_msgs::Imu imu_data)
   omega_c = Eigen::Vector3f(imu_data.angular_velocity.x, imu_data.angular_velocity.y, imu_data.angular_velocity.z);
 }
 
-void gimbal_pan_callback(std_msgs::Float32MultiArray msg)
+void gimbal_pan_callback(std_msgs::Float64MultiArray msg)
 {
   t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
   gimbal_horizontal_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
@@ -289,7 +289,7 @@ void gimbal_pan_callback(std_msgs::Float32MultiArray msg)
   h_ang_map[gimbal_horizontal_angle.header.stamp.toSec()] = gimbal_horizontal_angle.value;
 }
 
-void gimbal_tilt_callback(std_msgs::Float32MultiArray msg)
+void gimbal_tilt_callback(std_msgs::Float64MultiArray msg)
 {
   t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
   gimbal_vertical_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
@@ -394,8 +394,6 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
       //#pragma omp parallel for schedule(static)
       for (int i = 0; i < interval * cfg.frame_process_num; i+=interval)
       {
-        if (!is_point_valid(p_cloud->points[i]))
-          continue;
         int point_idx = frame_point_idx + i;
         //Get the point's time.
         double point_time = point_time_start + point_idx * Avia_dt;    
@@ -556,8 +554,8 @@ int main(int argc, char **argv)
   cloud_sub = nh.subscribe("/livox/lidar", 1, &pointcloud2_callback);
   // gimbal_sub_h = nh.subscribe("/horizontal_angle", 1, &gimbal_horizontal_callback);
   // gimbal_sub_v = nh.subscribe("/vertical_angle", 1, &gimbal_vertical_callback);
-  gimbal_sub_pan = nh.subscribe("pan", 4, &gimbal_pan_callback);
-  gimbal_sub_tilt = nh.subscribe("tilt", 4, &gimbal_tilt_callback);
+  gimbal_sub_pan = nh.subscribe("/pan", 4, &gimbal_pan_callback);
+  gimbal_sub_tilt = nh.subscribe("/tilt", 4, &gimbal_tilt_callback);
   // gnss_sub = nh.subscribe("/Inertial/gps/fix", 15, &gnss_callback);
   // car_imu_sub = nh.subscribe("/Inertial/imu/data", 15, &car_imu_callback);
 
