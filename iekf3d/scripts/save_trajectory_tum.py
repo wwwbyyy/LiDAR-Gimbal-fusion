@@ -15,6 +15,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 import threading
+import yaml
 
 # ROS message types
 from nav_msgs.msg import Odometry
@@ -32,11 +33,72 @@ except ImportError:
     rospy.logwarn("Install with: sudo apt-get install ros-noetic-geodesy")
 
 
+def load_map_utm_origin(config_path=None):
+    """
+    Load the UTM origin from the map's info.yaml file.
+    
+    Args:
+        config_path: Path to iekf3d configs.yaml file. If None, uses default path.
+        
+    Returns:
+        tuple: (utm_origin_x, utm_origin_y, utm_origin_z) or (0, 0, 0) if not found
+    """
+    try:
+        # If no config path provided, use default
+        if config_path is None:
+            script_dir = Path(__file__).resolve().parent.parent
+            config_path = script_dir / "configs" / "configs.yaml"
+        else:
+            config_path = Path(config_path)
+        
+        if not config_path.exists():
+            rospy.logwarn(f"Config file not found: {config_path}")
+            return (0.0, 0.0, 0.0)
+        
+        # Load iekf3d config
+        with open(config_path, 'r') as f:
+            iekf_config = yaml.safe_load(f)
+        
+        map_path = iekf_config.get('map_path')
+        if not map_path:
+            rospy.logwarn("map_path not found in config")
+            return (0.0, 0.0, 0.0)
+        
+        # Handle relative paths
+        map_path = Path(map_path)
+        if not map_path.is_absolute():
+            map_path = config_path.parent / map_path
+        
+        # Load map info.yaml
+        info_path = map_path / "info.yaml"
+        if not info_path.exists():
+            rospy.logwarn(f"Map info file not found: {info_path}")
+            return (0.0, 0.0, 0.0)
+        
+        with open(info_path, 'r') as f:
+            map_info = yaml.safe_load(f)
+        
+        utm_origin = map_info.get('utm_origin', [0.0, 0.0, 0.0])
+        
+        if len(utm_origin) >= 3:
+            rospy.loginfo(f"Loaded UTM origin from {info_path}")
+            rospy.loginfo(f"UTM origin: [{utm_origin[0]:.3f}, {utm_origin[1]:.3f}, {utm_origin[2]:.3f}]")
+            return (utm_origin[0], utm_origin[1], utm_origin[2])
+        else:
+            rospy.logwarn("Invalid utm_origin in map info")
+            return (0.0, 0.0, 0.0)
+            
+    except Exception as e:
+        rospy.logerr(f"Error loading UTM origin: {e}")
+        return (0.0, 0.0, 0.0)
+
+
 class TrajectoryRecorder:
     """Records trajectory data from ROS topics and saves in TUM format."""
     
     def __init__(self, odom_topic=None, gps_topic=None, output_dir=None, 
-                 odom_type='nav_msgs/Odometry', gps_type='sensor_msgs/NavSatFix'):
+                 odom_type='nav_msgs/Odometry', gps_type='sensor_msgs/NavSatFix',
+                 config_path=None):
         """
         Initialize the trajectory recorder.
         
@@ -46,11 +108,16 @@ class TrajectoryRecorder:
             output_dir: Directory to save output files
             odom_type: Message type for odometry ('nav_msgs/Odometry', 'geometry_msgs/PoseWithCovarianceStamped', 'cyber_msgs/LocalizationEstimate')
             gps_type: Message type for GPS ('sensor_msgs/NavSatFix', 'cyber_msgs/LocalizationEstimate')
+            config_path: Path to iekf3d config file (for loading UTM origin)
         """
         self.odom_topic = odom_topic
         self.gps_topic = gps_topic
         self.odom_type = odom_type
         self.gps_type = gps_type
+        
+        # Load UTM origin from map info
+        self.utm_origin = load_map_utm_origin(config_path)
+        rospy.loginfo(f"Using UTM origin: {self.utm_origin}")
         
         # Setup output directory
         if output_dir is None:
@@ -187,7 +254,7 @@ class TrajectoryRecorder:
             rospy.logwarn_throttle(10, "geodesy not available. Cannot convert GPS to UTM.")
             return
 
-        if msg.status.status != 2:
+        if msg.status.status < 0:
             rospy.logwarn_throttle(10, "GPS fix not available.")
             return
 
@@ -196,9 +263,12 @@ class TrajectoryRecorder:
         # Convert lat/lon to UTM using geodesy
         try:
             utm_point = utm.fromLatLong(msg.latitude, msg.longitude, msg.altitude)
-            utm_x = utm_point.easting
-            utm_y = utm_point.northing
-            z = utm_point.altitude
+            
+            # Subtract the map's UTM origin to get coordinates relative to the map origin
+            # This matches how iekf3d_node processes GPS: x -= map_info.utm_origin[0]
+            utm_x = utm_point.easting - self.utm_origin[0]
+            utm_y = utm_point.northing - self.utm_origin[1]
+            z = utm_point.altitude - self.utm_origin[2]
         except Exception as e:
             rospy.logerr(f"GPS conversion failed: {e}")
             return
@@ -278,9 +348,9 @@ Examples:
         """
     )
     
-    parser.add_argument('--odom-topic', type=str, default=None,
+    parser.add_argument('--odom-topic', type=str, default='/iekf3d/odometry',
                         help='ROS topic for odometry messages')
-    parser.add_argument('--gps-topic', type=str, default=None,
+    parser.add_argument('--gps-topic', type=str, default='/Inertial/gps/fix',
                         help='ROS topic for GPS messages')
     parser.add_argument('--output-dir', type=str, default=None,
                         help='Output directory (default: iekf3d/results/<timestamp>)')
@@ -293,6 +363,8 @@ Examples:
                         choices=['sensor_msgs/NavSatFix',
                                 'cyber_msgs/LocalizationEstimate'],
                         help='Message type for GPS topic')
+    parser.add_argument('--config-path', type=str, default=None,
+                        help='Path to iekf3d configs.yaml file (default: iekf3d/configs/configs.yaml)')
     
     args = parser.parse_args()
     
@@ -310,7 +382,8 @@ Examples:
         gps_topic=args.gps_topic,
         output_dir=args.output_dir,
         odom_type=args.odom_type,
-        gps_type=args.gps_type
+        gps_type=args.gps_type,
+        config_path=args.config_path
     )
     
     # Setup shutdown hook

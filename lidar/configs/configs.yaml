@@ -11,5 +11,5 @@ is_save_cloud: false
 car2gimbal_transformation: [0.0, 0.0, 0.0, 0, 0, 0]
 
 # 3 elements: Translation(x,y,z) in meter
-# device_bias_trans: [0.0380, -0.0010, 0.0076]
-device_bias_trans: [0, 0, 0]
+device_bias_trans: [0.0380, -0.0010, 0.0076]
+# device_bias_trans: [0, 0, 0]
