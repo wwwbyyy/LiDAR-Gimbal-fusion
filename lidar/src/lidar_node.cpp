@@ -350,59 +350,37 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
     return;
   }
   
-  // Debug: Print gimbal data info
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: h_ang_map.size()=" << h_ang_map.size() 
-                  << ", v_ang_map.size()=" << v_ang_map.size() << "\033[0m");
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: h_ang first=" << std::fixed << std::setprecision(9) 
-                  << h_ang_map.begin()->first << ", last=" << h_ang_map.rbegin()->first << "\033[0m");
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: v_ang first=" << std::fixed << std::setprecision(9) 
-                  << v_ang_map.begin()->first << ", last=" << v_ang_map.rbegin()->first << "\033[0m");
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: point_time=" << std::fixed << std::setprecision(9) 
-                  << point_time << "\033[0m");
-  
   // Safe iterator retrieval for h_ang
   auto it_h_ang_lower = h_ang_map.lower_bound(point_time);
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: h_ang_map.lower_bound(point_time) found" << "\033[0m");
-  
   if (it_h_ang_lower == h_ang_map.begin())
   {
-    ROS_ERROR_STREAM("\033[91m" << "ERROR: point_time is before first h_ang data!" << "\033[0m");
+    ROS_WARN("point_time is before first h_ang data");
     return;
   }
   auto it_h_ang = std::prev(it_h_ang_lower);
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: it_h_ang time=" << std::fixed << std::setprecision(9) 
-                  << it_h_ang->first << "\033[0m");
   
   if (it_h_ang == h_ang_map.begin())
   {
-    ROS_ERROR_STREAM("\033[91m" << "ERROR: Not enough h_ang data before point_time!" << "\033[0m");
+    ROS_WARN("Not enough h_ang data before point_time");
     return;
   }
   auto it_h_ang_prev = std::prev(it_h_ang);
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: it_h_ang_prev time=" << std::fixed << std::setprecision(9) 
-                  << it_h_ang_prev->first << "\033[0m");
   
   // Safe iterator retrieval for v_ang
   auto it_v_ang_lower = v_ang_map.lower_bound(point_time);
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: v_ang_map.lower_bound(point_time) found" << "\033[0m");
-  
   if (it_v_ang_lower == v_ang_map.begin())
   {
-    ROS_ERROR_STREAM("\033[91m" << "ERROR: point_time is before first v_ang data!" << "\033[0m");
+    ROS_WARN("point_time is before first v_ang data");
     return;
   }
   auto it_v_ang = std::prev(it_v_ang_lower);
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: it_v_ang time=" << std::fixed << std::setprecision(9) 
-                  << it_v_ang->first << "\033[0m");
   
   if (it_v_ang == v_ang_map.begin())
   {
-    ROS_ERROR_STREAM("\033[91m" << "ERROR: Not enough v_ang data before point_time!" << "\033[0m");
+    ROS_WARN("Not enough v_ang data before point_time");
     return;
   }
-  auto it_v_ang_prev = std::prev(it_v_ang);
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: it_v_ang_prev time=" << std::fixed << std::setprecision(9) 
-                  << it_v_ang_prev->first << "\033[0m"); 
+  auto it_v_ang_prev = std::prev(it_v_ang); 
   double comp_head_time = it_h_ang->first;  
   float yaw_g_angle = it_h_ang->second - yaw_shift;
   float pitch_g_angle = it_v_ang->second - pitch_shift;
@@ -418,29 +396,16 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   p_cloud_out->resize(p_cloud->size());
   int interval = std::floor(frame_point_num / cfg.frame_process_num);
   
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: Before IMU lookup, imu_ang_v_vec.size()=" 
-                  << imu_ang_v_vec.size() << "\033[0m");
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: frame_time=" << std::fixed << std::setprecision(9) 
-                  << frame_time << "\033[0m");
-  
-  if (!imu_ang_v_vec.empty())
-  {
-    ROS_INFO_STREAM("\033[93m" << "DEBUG: imu_ang_v_vec first=" << std::fixed << std::setprecision(9) 
-                    << imu_ang_v_vec.begin()->first << ", last=" << imu_ang_v_vec.rbegin()->first << "\033[0m");
-  }
-  
   std::map<double, Eigen::Matrix3f> frame_imu_rot_map;
   
   // Safe iterator retrieval for IMU
   auto it_imu_lower = imu_ang_v_vec.lower_bound(frame_time);
   if (it_imu_lower == imu_ang_v_vec.begin())
   {
-    ROS_ERROR_STREAM("\033[91m" << "ERROR: frame_time is before first IMU data!" << "\033[0m");
+    ROS_WARN("frame_time is before first IMU data");
     return;
   }
   auto it_imu = std::prev(it_imu_lower);
-  ROS_INFO_STREAM("\033[93m" << "DEBUG: it_imu time=" << std::fixed << std::setprecision(9) 
-                  << it_imu->first << "\033[0m");
   
   std::vector<Eigen::Matrix4f> pose_vec(frame_point_num, Eigen::Matrix4f::Identity());
   switch (cfg.overlap_mode)
