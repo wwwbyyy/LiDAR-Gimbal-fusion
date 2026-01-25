@@ -282,8 +282,8 @@ void car_imu_callback(sensor_msgs::Imu imu_data)
 void gimbal_pan_callback(std_msgs::Float64MultiArray msg)
 {
   t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
-  gimbal_horizontal_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
-  // gimbal_horizontal_angle.header.stamp.fromSec(msg.data[0]);
+  // gimbal_horizontal_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
+  gimbal_horizontal_angle.header.stamp.fromSec(msg.data[0]);
   gimbal_horizontal_angle.value = msg.data[1] * M_PIq / 180.0; // Notice the sign.
   gimbal_inited_h = true;
   h_ang_map[gimbal_horizontal_angle.header.stamp.toSec()] = gimbal_horizontal_angle.value;
@@ -292,8 +292,8 @@ void gimbal_pan_callback(std_msgs::Float64MultiArray msg)
 void gimbal_tilt_callback(std_msgs::Float64MultiArray msg)
 {
   t_cvter.get_offset("gimbal_stamp", ros::Time::now(), msg.data[0]);
-  gimbal_vertical_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
-  // gimbal_vertical_angle.header.stamp.fromSec(msg.data[0]);
+  // gimbal_vertical_angle.header.stamp.fromSec(t_cvter.convert("gimbal_stamp", "ros_stamp", msg.data[0]));
+  gimbal_vertical_angle.header.stamp.fromSec(msg.data[0]);
   // ROS_INFO_STREAM("msg_time:" << std::fixed << std::setprecision(9) << msg.data[0]);
   // ROS_INFO_STREAM("Gimbal time:" << std::fixed << std::setprecision(9) << gimbal_vertical_angle.header.stamp.toSec());
   gimbal_vertical_angle.value = (msg.data[1]) * M_PIq / 180.0;
@@ -305,7 +305,7 @@ void imu_callback(sensor_msgs::Imu imu_data)
 {
   t_cvter.get_offset("Avia_stamp", ros::Time::now(), imu_data.header.stamp.toSec());
   Eigen::Vector3f ang_v(imu_data.angular_velocity.x, imu_data.angular_velocity.y, imu_data.angular_velocity.z);
-  imu_ang_v_vec[t_cvter.convert("Avia_stamp", "ros_stamp", imu_data.header.stamp.toSec())] = ang_v;
+  imu_ang_v_vec[t_cvter.convert("Avia_stamp", "gimbal_stamp", imu_data.header.stamp.toSec())] = ang_v;
 }
 
 void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
@@ -326,9 +326,9 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   // voxel.setInputCloud(p_cloud);
   // voxel.setRadiusSearch(cfg.voxel_leaf);
   // voxel.filter(*p_cloud);
-  const static double point_time_start = ros::Time::now().toSec() - frame_T;
+  const static double point_time_start = t_cvter.convert("Avia_stamp", "gimbal_stamp", p_msg->header.stamp.toSec());
 
-  double frame_time = t_cvter.convert("Avia_stamp", "ros_stamp", p_msg->header.stamp.toSec());
+  double frame_time = t_cvter.convert("Avia_stamp", "gimbal_stamp", p_msg->header.stamp.toSec());
   int frame_point_idx = std::round((frame_time - point_time_start) / frame_T) * frame_point_num;
   int point_idx = frame_point_idx;
   double point_time = frame_time;
@@ -349,10 +349,60 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
     ROS_INFO_STREAM("\033[91m" << "Not enough gimbal data." << "\033[0m");
     return;
   }
-  auto it_h_ang = --h_ang_map.lower_bound(point_time);
-  auto it_h_ang_prev = --(--h_ang_map.lower_bound(point_time));
-  auto it_v_ang = --v_ang_map.lower_bound(point_time);
-  auto it_v_ang_prev = --(--v_ang_map.lower_bound(point_time)); 
+  
+  // Debug: Print gimbal data info
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: h_ang_map.size()=" << h_ang_map.size() 
+                  << ", v_ang_map.size()=" << v_ang_map.size() << "\033[0m");
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: h_ang first=" << std::fixed << std::setprecision(9) 
+                  << h_ang_map.begin()->first << ", last=" << h_ang_map.rbegin()->first << "\033[0m");
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: v_ang first=" << std::fixed << std::setprecision(9) 
+                  << v_ang_map.begin()->first << ", last=" << v_ang_map.rbegin()->first << "\033[0m");
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: point_time=" << std::fixed << std::setprecision(9) 
+                  << point_time << "\033[0m");
+  
+  // Safe iterator retrieval for h_ang
+  auto it_h_ang_lower = h_ang_map.lower_bound(point_time);
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: h_ang_map.lower_bound(point_time) found" << "\033[0m");
+  
+  if (it_h_ang_lower == h_ang_map.begin())
+  {
+    ROS_ERROR_STREAM("\033[91m" << "ERROR: point_time is before first h_ang data!" << "\033[0m");
+    return;
+  }
+  auto it_h_ang = std::prev(it_h_ang_lower);
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: it_h_ang time=" << std::fixed << std::setprecision(9) 
+                  << it_h_ang->first << "\033[0m");
+  
+  if (it_h_ang == h_ang_map.begin())
+  {
+    ROS_ERROR_STREAM("\033[91m" << "ERROR: Not enough h_ang data before point_time!" << "\033[0m");
+    return;
+  }
+  auto it_h_ang_prev = std::prev(it_h_ang);
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: it_h_ang_prev time=" << std::fixed << std::setprecision(9) 
+                  << it_h_ang_prev->first << "\033[0m");
+  
+  // Safe iterator retrieval for v_ang
+  auto it_v_ang_lower = v_ang_map.lower_bound(point_time);
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: v_ang_map.lower_bound(point_time) found" << "\033[0m");
+  
+  if (it_v_ang_lower == v_ang_map.begin())
+  {
+    ROS_ERROR_STREAM("\033[91m" << "ERROR: point_time is before first v_ang data!" << "\033[0m");
+    return;
+  }
+  auto it_v_ang = std::prev(it_v_ang_lower);
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: it_v_ang time=" << std::fixed << std::setprecision(9) 
+                  << it_v_ang->first << "\033[0m");
+  
+  if (it_v_ang == v_ang_map.begin())
+  {
+    ROS_ERROR_STREAM("\033[91m" << "ERROR: Not enough v_ang data before point_time!" << "\033[0m");
+    return;
+  }
+  auto it_v_ang_prev = std::prev(it_v_ang);
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: it_v_ang_prev time=" << std::fixed << std::setprecision(9) 
+                  << it_v_ang_prev->first << "\033[0m"); 
   double comp_head_time = it_h_ang->first;  
   float yaw_g_angle = it_h_ang->second - yaw_shift;
   float pitch_g_angle = it_v_ang->second - pitch_shift;
@@ -367,8 +417,31 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   CloudType::Ptr p_cloud_out(new CloudType);
   p_cloud_out->resize(p_cloud->size());
   int interval = std::floor(frame_point_num / cfg.frame_process_num);
+  
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: Before IMU lookup, imu_ang_v_vec.size()=" 
+                  << imu_ang_v_vec.size() << "\033[0m");
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: frame_time=" << std::fixed << std::setprecision(9) 
+                  << frame_time << "\033[0m");
+  
+  if (!imu_ang_v_vec.empty())
+  {
+    ROS_INFO_STREAM("\033[93m" << "DEBUG: imu_ang_v_vec first=" << std::fixed << std::setprecision(9) 
+                    << imu_ang_v_vec.begin()->first << ", last=" << imu_ang_v_vec.rbegin()->first << "\033[0m");
+  }
+  
   std::map<double, Eigen::Matrix3f> frame_imu_rot_map;
-  auto it_imu = --imu_ang_v_vec.lower_bound(frame_time);
+  
+  // Safe iterator retrieval for IMU
+  auto it_imu_lower = imu_ang_v_vec.lower_bound(frame_time);
+  if (it_imu_lower == imu_ang_v_vec.begin())
+  {
+    ROS_ERROR_STREAM("\033[91m" << "ERROR: frame_time is before first IMU data!" << "\033[0m");
+    return;
+  }
+  auto it_imu = std::prev(it_imu_lower);
+  ROS_INFO_STREAM("\033[93m" << "DEBUG: it_imu time=" << std::fixed << std::setprecision(9) 
+                  << it_imu->first << "\033[0m");
+  
   std::vector<Eigen::Matrix4f> pose_vec(frame_point_num, Eigen::Matrix4f::Identity());
   switch (cfg.overlap_mode)
   {
