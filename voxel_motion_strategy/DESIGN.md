@@ -1,97 +1,70 @@
 # Voxel Motion Strategy — 设计分析与实现 Pipeline
 
-## 一、方法辨析
+## 一、方法
 
-### A. 矩阵 S、λ_min 与 N_effective
+### A. 矩阵 S、λ_min 与 score
 
-S = Σ nᵀn 是区域内法向量的二阶矩矩阵。λ_min 反映了法向量在三个主轴方向的分散程度：
+S = Σ nᵀn 是矩形区域内法向量的二阶矩矩阵。λ_min 反映法向量方向多样性：
+
 - 单一平面 → S 秩为 1，λ_min ≈ 0
 - 墙角（正交平面）→ S 秩为 2，λ_min 中等
 - 复杂三面角 → S 秩为 3，λ_min 最大
 
-λ_min 越大 → 几何结构越丰富 → ICP 约束越完整。
-
-**λ_min 不反映覆盖密度**。引入 N_effective：
+λ_min 越大 → 几何结构越丰富 → ICP 约束越完整。引入像素覆盖 N_effective：
 
 ```
-score = λ_min × N_effective - a·pitch + b·f(δyaw)
+score = λ_min - a·pitch
 ```
 
-其中 **N_effective = 矩形内命中体素的像素数**（无论该体素的 n 是否为 0）。
+- `λ_min`：S = Σ nᵢnᵢᵀ 的最小特征值。tr(S) = Σ|nᵢ|² = N_eff，所以 λ_min 已隐含覆盖密度，不需二次加权
+- `-a·pitch`：pitch 越小（越向上看）分越高。a > 0
 
-二者无重复计算：
-- n=0 的体素 → n×nᵀ = 0 矩阵 → 对 S 无贡献 → 不会虚增 λ_min
-- 但该像素计入 N_effective → 反映几何覆盖密度（"这个方向有东西"）
-- N_effective 测覆盖，λ_min 测多样性，各司其职
+### B. Yaw 运动约束（替代 δyaw 惩罚）
 
-### B. Octomap vs Dense Grid 的 ERP Ray-cast
-
-ERP 对每个像素方向发射射线，用 ray-march 找到第一个被占据的体素。
-
-**Dense 3D Array**：
-- DDA 每步 O(1)（整数加法 + 数组索引）
-- 每条射线最多 D/s 步（50m / 1m = 50 步）
-- 但无论体素是否被占据，每步必走——户外场景 >95% 是空气/天空，大量步数浪费
-
-**Octomap（推荐）**：
-- 层次结构允许跳跃空区域：如果一个大节点为空，整块跳过
-- 户外稀疏场景下，每条射线平均只需 log(D/s) ≈ 5-6 次树遍历
-- 150m 范围对 Dense 不可行（~27M 体素），对 Octomap 完全可行
-
-| | Dense Grid | Octomap |
-|---|---|---|
-| 单步开销 | O(1)，整数运算 | O(log N)，指针 |
-| 空旷区域 | 每步必走 | O(1) 跳过 |
-| 内存(150m, 1m) | ~27M 体素 (不可行) | 与占据数成正比 (可行) |
-| 总步数(估算) | ~10M+ | ~0.3-0.5M (空洞跳跃) |
-| 实现复杂度 | 低 | 中 |
-
-**结论**：采用 Octomap，户外稀疏场景下 ray-cast 效率显著更高。
-
-### C. Score 函数
+不使用 score 中的 δyaw 惩罚项。改用云台角速度/角加速度约束来剪枝搜索空间：
 
 ```
-score = λ_min × N_effective - a·pitch + b·f(δyaw)
+给定: current_yaw, current_vel (角速度), dt (策略周期),
+      ω_max (最大角速度), α_max (最大角加速度)
+
+可行角速度范围: vel' ∈ [current_vel - α_max·dt, current_vel + α_max·dt]
+                ∩ [-ω_max, ω_max]
+
+可行 yaw 范围: yaw' ∈ [current_yaw + vel'_min·dt, current_yaw + vel'_max·dt]
+               再叠加 ±½·α_max·dt² 的加速度效应
 ```
 
-- `λ_min × N_effective`：可定位性 × 有效覆盖
-- `-a·pitch`：pitch 越小（越向上看），分越高。向上看减少遮挡。**注意负号**
-- `b·f(δyaw)`：f 单调递减，δyaw 越小 f 越大（奖励平滑）。b > 0
-
-**f(δyaw) 设计**：
-- 带死区 [0, δ_deadzone]：f 恒定（不惩罚小角度变化），避免局限于附近——LiDAR 点云预处理有去畸变，合理的 δyaw 不影响数据质量
-- 超过死区后单调递减，如：
+带死区 δ_deadzone（不锁定在附近）：
 
 ```
-f(δyaw) = 1                          , if δyaw ≤ δ_deadzone
-f(δyaw) = exp(-(δyaw - δ_deadzone) / τ), if δyaw > δ_deadzone
+yaw_min = current_yaw + min(0, current_vel - α_max·dt)·dt - ½·α_max·dt² - δ_deadzone
+yaw_max = current_yaw + max(0, current_vel + α_max·dt)·dt + ½·α_max·dt² + δ_deadzone
+clamp to: [current_yaw - ω_max·dt, current_yaw + ω_max·dt]
 ```
 
-### D. 时间一致性和车辆运动模型
+**效果**：
+- 候选 yaw 搜索范围从全局 360° 缩小到运动可达范围（通常 ±20-40°）
+- ERP 投影时只处理该水平区间（+ FoV margin），剪枝大量 ray-cast
+- 不需要调 b 参数和 f(δyaw) 形式，参数更具物理意义
 
-暂时不考虑（后续迭代加入）。
+### C. 体素法向量一致性筛选 — 暂时跳过
 
-### E. IEKF 协方差方向加权
+经过测试，单独使用 R（法向量半球一致性）在 1m 和 0.5m 分辨率下均无法有效区分建筑立面和树叶。体素构建时暂不对法向量做筛选——所有被占据的体素直接存储其平均法向量。后续可在 ERP 投影阶段通过 S 矩阵的自然惩罚来处理不稳定区域。
 
-有道理，但暂时不考虑（先用统一的 λ_min 跑通基本流程）。
+### D. Octomap vs Dense Grid
 
-### F. 积分图的水平扩展
+采用 Octomap 存储体素地图：
+- 户外稀疏场景下 ray-cast 通过空洞跳跃大幅减少步数
+- 150m 范围对 Dense 不可行，对 Octomap 无压力
 
-ERP 水平方向 360°，Avia FoV 矩形（水平 ~70.4°）在 yaw 接近 0°/360° 边界时会跨越边界，积分图不支持跨边界矩形查询。
+### E. 积分图的水平扩展
 
-**解决方案**：水平方向扩展。构建积分图时，在 ERP 右侧额外复制左侧 FoV_width 列：
+ERP 水平 360°，Avia FoV 矩形在 yaw 接近边界时会跨越 0°/360°。构建积分图时在右侧扩展 FoV_width 列。
 
-```
-原始 ERP 宽度: W_h = 360° / resolution
-扩展后宽度: W_h + FoV_width_pixels
-```
+### F. 暂不考虑
 
-扩展后任何中心 yaw 对应的 FoV 矩形都不会跨边界，可在积分图上做常规 O(1) 查询。
-
-### G. 动态物体和季节变化
-
-- 树叶等不稳定特征：构建体素地图时，法向量不一致的体素 → 标记 n=(0,0,0) → 对 S 无贡献 → 自然成为"不好的体素"
-- 遮挡：-a·pitch 项使策略倾向向上看，减少近处遮挡
+- 时间一致性 / 前瞻位姿（后续迭代）
+- IEKF 协方差方向加权（后续迭代）
 
 ---
 
@@ -108,70 +81,51 @@ ERP 水平方向 360°，Avia FoV 矩形（水平 ~70.4°）在 yaw 接近 0°/3
 │  OctomapBuilder                                                   │
 │  ├── 加载点云 + 法向量                                           │
 │  ├── 构建 Octomap (resolution: ~1m)                               │
-│  ├── 每个节点: 聚合法向量, 检查一致性                              │
-│  │    - 一致 → n_mean                                             │
-│  │    - 不一致 → (0,0,0) (树叶、边缘等)                          │
-│  └── 输出: VoxelOctomap (序列化存储, 可快速加载)                  │
+│  ├── 每个节点: 存储点位 + 平均法向量 (不做一致性筛选)              │
+│  └── 输出: VoxelOctomap (序列化存储)                              │
 │                                                                  │
 ├──────────────────────────────────────────────────────────────────┤
 │                  ONLINE: 策略更新循环 (2-5 Hz)                    │
 ├──────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│  ① getCurrentPose()                                              │
-│     └── 订阅 /localization/estimation                            │
+│  ① getCurrentState()                                              │
+│     ├── 订阅 /localization/estimation → 位姿                      │
+│     └── 订阅 /pan 反馈 → current_yaw, current_yaw_vel            │
 │                                                                  │
-│  ② ERPProjector::project(octomap, pose, params)                  │
-│     ├── 以当前位姿为球心                                          │
-│     ├── 范围: 半径 150m (Octomap 空洞跳跃, 远距几乎不增开销)     │
-│     ├── 垂直范围: ~140° (以覆盖 pitch_candidate 范围)             │
-│     │     pitch ∈ [-50°, 20°] 对应 FoV 矩形上下沿 ≈              │
-│     │     [-88.5°, 58.5°], 取 ERP 垂直 [-90°, 50°] ≈ 140°       │
-│     ├── 水平范围: 360° + FoV_width 扩展                          │
-│     ├── 分辨率: ~1°/pixel                                        │
-│     ├── 每像素: octree ray-cast → 第一个命中体素的法向量 n      │
-│     │    无命中 → n = (0,0,0)                                    │
-│     └── 输出: ERPDepthImage[n_row][n_col] = n ∈ R³ + occupied_flag│
+│  ② computeFeasibleYawRange(current_yaw, current_vel, dt, params) │
+│     ├── 角速度 + 角加速度约束                                     │
+│     ├── 死区扩展                                                   │
+│     └── 输出: [yaw_min, yaw_max]                                  │
 │                                                                  │
-│  ③ IntegralImage::build(erp_image)                               │
-│     ├── 每个 pixel: M = n * n^T (3x3 对称, 6 独立分量)           │
+│  ③ ERPProjector::project(octomap, pose, yaw_range, params)       │
+│     ├── 以位姿为球心                                              │
+│     ├── 水平: 仅 yaw_range + FoV margin (剪枝!)                   │
+│     ├── 垂直: ~140° (覆盖 pitch_candidate)                        │
+│     ├── 范围: 半径 150m                                           │
+│     ├── 分辨率: ~1°/pixel                                         │
+│     ├── Octree ray-cast → 第一个命中体素 → 法向量 n               │
+│     └── 输出: ERPDepthImage (水平范围缩小)                         │
+│                                                                  │
+│  ④ IntegralImage::build(erp_image)                               │
+│     ├── 每个 pixel: M = n * n^T (3x3 对称, 6 分量)               │
 │     ├── 每个 pixel: occupied (0/1)                                │
-│     ├── 构建 6 个矩阵分量积分图 + 1 个 occupied 计数积分图         │
-│     └── 总计 7 个标量积分图                                       │
+│     └── 7 个标量积分图 (6 矩阵分量 + 1 占用计数)                   │
 │                                                                  │
-│  ④ RectangleSearch::search(integral_imgs, curr_yaw, curr_pitch)  │
-│     ├── Avia FoV 矩形: w = 70.4°/res, h = 77.2°/res              │
-│     ├── 候选 (yaw_c, pitch_c):                                    │
-│     │   - yaw_c   ∈ [-180°, 180°), step 2-5°                     │
-│     │   - pitch_c ∈ [-50°, 20°],    step 2-5°                    │
+│  ⑤ RectangleSearch::search(integral_imgs, yaw_range, pitch_range)│
+│     ├── Avia FoV 矩形: w ≈ 70.4°/res, h ≈ 77.2°/res              │
+│     ├── 候选 yaw: yaw_range 内, step 2-5°                        │
+│     ├── 候选 pitch: [-50°, 20°], step 2-5°                       │
 │     ├── 每个候选 O(1):                                            │
 │     │   a) 积分图查 S (6 分量)                                    │
 │     │   b) 积分图查 N_effective                                   │
-│     │   c) Eigen::SelfAdjointEigenSolver<3> → λ_min              │
-│     │   d) δyaw = shortest_angle(yaw_c, curr_yaw)                │
-│     │   e) score = λ_min × N_effective - a·pitch_c + b·f(δyaw)  │
+│     │   c) λ_min ← SelfAdjointEigenSolver<3>                     │
+│     │   d) score = λ_min - a·pitch_c               │
 │     └── argmax → best_yaw, best_pitch                            │
 │                                                                  │
-│  ⑤ publishGimbalCmd(best_yaw, best_pitch)                        │
+│  ⑥ publishGimbalCmd(best_yaw, best_pitch)                        │
 │     └── cyber_msgs::GimbalCommand → /gimbal_cmd                  │
-│         cmd=PAN,  data=best_yaw (度)                             │
-│         cmd=TILT, data=best_pitch (度)                           │
 │                                                                  │
 └──────────────────────────────────────────────────────────────────┘
-```
-
-**ERP 水平扩展示意**：
-```
-原始 ERP (360°):
-┌────────────────────────────────────────────┐
-│ 0°  ...                                    │ 360°
-└────────────────────────────────────────────┘
-
-扩展后 (360° + FoV_width):
-┌────────────────────────────────────────────┬──────────────────┐
-│ 0°  ...                                    │ 360° │ 0°..FoV_w │
-└────────────────────────────────────────────┴──────────────────┘
-        ◄─── FoV 矩形(跨边界时) ───►
-              在扩展区完成查询, 无需 wraparound
 ```
 
 ---
@@ -181,17 +135,18 @@ ERP 水平方向 360°，Avia FoV 矩形（水平 ~70.4°）在 yaw 接近 0°/3
 ```
 voxel_motion_strategy/
 ├── include/voxel_motion_strategy/
-│   ├── octomap_builder.h     # Octomap 构建 + 法向量一致性检查
-│   ├── erp_projector.h       # ERP 投影 + octree ray-cast
-│   ├── integral_image.h      # 3×3 矩阵积分图 + 占用计数积分图
-│   └── rectangle_search.h    # 候选搜索 + score 计算
+│   ├── octomap_builder.h      # Octomap 构建 + 法向量均值
+│   ├── erp_projector.h        # ERP 投影 + octree ray-cast (支持水平剪枝)
+│   ├── integral_image.h       # 矩阵积分图
+│   ├── rectangle_search.h     # 候选搜索 + score
+│   └── yaw_constraint.h       # 运动约束 → 可行 yaw 范围
 ├── src/
-│   ├── voxel_motion_strategy_node.cpp  # ROS 主节点
+│   ├── voxel_motion_strategy_node.cpp
 │   ├── octomap_builder.cpp
 │   ├── erp_projector.cpp
 │   ├── integral_image.cpp
 │   ├── rectangle_search.cpp
-│   └── octomap_test.cpp      # 测试: 可视化体素法向量一致性
+│   └── yaw_constraint.cpp
 ├── launch/
 │   └── voxel_strategy.launch
 ├── configs/
@@ -208,48 +163,45 @@ voxel_motion_strategy/
 |---|---|---|
 | `octomap_resolution` | 1.0 m | 体素分辨率 |
 | `erp_resolution` | 1.0° | ERP 像素/度 |
-| `erp_range_max` | 150 m | 射线最大距离 (Octomap 空洞跳跃, 远距开销小) |
+| `erp_range_max` | 150 m | 射线最大距离 |
 | `erp_vfov_min` | -90° | ERP 垂直下界 |
-| `erp_vfov_max` | 50° | ERP 垂直上界 (覆盖 pitch_candidate 的 FoV) |
-| `pitch_candidate_min` | -50° | 候选 pitch 下界（向上看） |
+| `erp_vfov_max` | 50° | ERP 垂直上界 |
+| `pitch_candidate_min` | -50° | 候选 pitch 下界 |
 | `pitch_candidate_max` | 20° | 候选 pitch 上界 |
 | `yaw_step` | 3° | 候选 yaw 搜索步长 |
 | `pitch_step` | 3° | 候选 pitch 搜索步长 |
-| `voxel_normal_consistency_threshold` | 待定 | 法向量一致性阈值 (从测试确定) |
-| `fov_horizontal` | 70.4° | Avia 水平 FoV |
-| `fov_vertical` | 77.2° | Avia 垂直 FoV |
+| `fov_horizontal` | 60° | Avia 圆形 FoV 内接矩形 (水平) |
+| `fov_vertical` | 68° | Avia 圆形 FoV 内接矩形 (垂直) |
 | `weight_pitch` (a) | 待调 | pitch 惩罚权重 |
-| `weight_dyaw` (b) | 待调 | δyaw 奖励权重 |
-| `dyaw_deadzone` | 待调 | δyaw 死区角度 |
-| `strategy_update_rate` | 4 Hz | 策略更新频率 |
+| `max_angular_velocity` | 待定 | 云台最大角速度 (deg/s) |
+| `max_angular_acceleration` | 待定 | 云台最大角加速度 (deg/s²) |
+| `dyaw_deadzone` | 待定 | 死区角度，避免锁在附近 |
+| `strategy_update_rate` | 4 Hz | 策略更新频率 (确定 dt) |
 
 ---
 
 ## 五、实施计划
 
-### Step 0: 体素地图测试
-
-先写 `octomap_test.cpp`：
-- 加载全局地图和法向量
-- 构建 Octomap
-- 统计/输出每个体素的法向量不一致程度（mean angular deviation 分布）
-- 根据实际数据确定 `voxel_normal_consistency_threshold`
-- 验证树叶等不稳定区域是否被正确标记为 n=(0,0,0)
+### Step 0: octomap_test 验证 — 已完成
+- 已测试 1m 和 0.5m 体素下 R + planarity 的区分能力
+- 结论: 体素法向量一致性筛选跳过，不做
 
 ### Step 1: 核心模块实现（按依赖顺序）
 
-1. `octomap_builder` — Octomap 构建 + 空间查询接口
-2. `erp_projector` — Octree ray-cast + ERP 深度图生成
-3. `integral_image` — 7 个标量积分图（6 个矩阵分量 + 1 个占用计数）
-4. `rectangle_search` — 候选搜索 + score 计算
+1. `octomap_builder` — Octomap 构建 + 平均法向量 + 序列化
+2. `yaw_constraint` — 角速度/角加速度约束 → 可行 yaw 范围
+3. `erp_projector` — Octree ray-cast + 水平剪枝 ERP
+4. `integral_image` — 7 个标量积分图
+5. `rectangle_search` — 候选搜索 (yaw 受约束) + score = λ_min × N_eff - a·pitch
 
 ### Step 2: ROS 节点集成
 
-- 订阅 `/localization/estimation`
+- 订阅 `/localization/estimation` 和 `/pan`（获取当前 yaw/角速度）
 - 发布 `/gimbal_cmd`
-- 参数从 YAML 加载
+- YAML 参数加载
 
 ### Step 3: 调参验证
 
-- 用 rosbag 回放测试各参数组合
-- 与 simplecount/RL 分支效果对比
+- 确定 `max_angular_velocity`、`max_angular_acceleration`（查阅云台规格）
+- 确定 `weight_pitch` (a)
+- rosbag 对比测试
