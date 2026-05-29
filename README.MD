@@ -142,3 +142,92 @@ lidar_extinct: [1.15, 0, 1.96, 0, 0, 1.5315] #hesai，其他激光雷达需要�
 - sim-gimbal-lidar node
 
   rosrun sim_gimbal_lidar sim_fimbal_lidar_node
+
+# Voxel Motion Strategy
+
+基于体素地图的 LiDAR 云台运动策略。通过等距矩形投影（ERP）将周围体素映射为深度图，搜索最优云台朝向以最大化 LiDAR 扫描区域的几何丰富度（ICP 可定位性）。
+
+## 构建
+
+```bash
+cd ~/loc_ws
+catkin_make --pkg voxel_motion_strategy
+```
+
+## 使用
+
+### 1. 构建体素地图
+
+首先从全局点云地图构建 Octomap 并序列化，只需执行一次：
+
+```bash
+# 构建 octomap（使用 iekf3d 的全局地图）
+./devel/lib/voxel_motion_strategy/octomap_builder_test \
+  /home/loc/loc_ws/data/SJTU_251114_allMap/global_01subsample_all_new.ply \
+  /home/loc/loc_ws/data/SJTU_251114_allMap/map-normal.ply \
+  /home/loc/loc_ws/data/octomap_out \
+  --voxel 1.0 --range 150
+```
+
+产出两个文件：
+- `octomap_out.ot` — 序列化的 OcTree
+- `octomap_out.normals` — 每个体素的平均法向量
+
+`--range` 控制从地图原点（UTM 原点）算起的最大距离（米）。可以根据运行区域调整，或用 `--range -1` 包含全图。
+
+### 2. 配置
+
+编辑 `configs/voxel_strategy.yaml`，关键参数：
+
+```yaml
+octomap_prefix: "/home/loc/loc_ws/data/octomap_out"  # 步骤1产出的前缀
+
+# LiDAR 外参，与 iekf3d/configs/configs.yaml 格式一致，直接复制
+lidar_extinct: [1.08, 0.0, 1.643, 1.67, 0.49, 89.24]
+```
+
+### 3. 启动策略节点
+
+```bash
+roslaunch voxel_motion_strategy voxel_strategy.launch
+```
+
+节点订阅：
+- `/iekf3d/odometry` (`nav_msgs/Odometry`) — 车辆定位位姿
+- `/pan` (`std_msgs/Float64MultiArray`) — 云台当前 pan 角度反馈
+
+节点发布：
+- `/gimbal_cmd` (`cyber_msgs/GimbalCommand`) — 云台 PAN/TILT 命令
+
+### 4. 可视化与调试工具
+
+```bash
+# 在指定位姿生成 ERP 深度图（PPM 格式）
+./devel/lib/voxel_motion_strategy/erp_viz <octomap_prefix> <x> <y> <z> [output.ppm]
+
+# 生成 score-vs-yaw 分析 + 最佳朝向深度图
+./devel/lib/voxel_motion_strategy/rect_viz <octomap_prefix> <x> <y> <z> [csv_out] [ppm_out]
+
+# 体素法向量一致性分析
+./devel/lib/voxel_motion_strategy/octomap_test <points.ply> [normals.ply] --voxel-size 1.0
+```
+
+## 架构
+
+```
+全局地图 (.ply)  →  Octomap (.ot + .normals)
+                              │
+车辆位姿 ─────────────────────┤
+云台反馈 ─────────────────────┤
+                              ▼
+                    ERP 投影 (erp_projector)
+                              │
+                   积分图构建 (integral_image)
+                              │
+                 yaw 约束 + 矩形搜索 (rectangle_search)
+                              │
+                         /gimbal_cmd
+```
+
+详见 [DESIGN.md](DESIGN.md)。
+

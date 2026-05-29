@@ -1,0 +1,31 @@
+# Voxel Motion Strategy — configuration
+
+# Path to pre-built octomap (prefix for .ot + .normals files)
+octomap_prefix: "/home/loc/loc_ws/data/octomap_test_out"
+
+# Strategy update rate (Hz)
+strategy_rate: 4.0
+
+# ERP projection
+erp_resolution_deg: 1.0       # degrees per pixel
+erp_range_max_m: 150.0        # max ray distance
+erp_vfov_min_deg: -90.0       # vertical FoV min (elevation)
+erp_vfov_max_deg: 60.0        # vertical FoV max
+
+# Rectangle search
+fov_horizontal_deg: 60.0      # Avia circular FoV inscribed rectangle (horizontal)
+fov_vertical_deg: 68.0        # Avia circular FoV inscribed rectangle (vertical)
+yaw_step_deg: 3.0             # search granularity
+pitch_step_deg: 3.0
+pitch_min_deg: -50.0          # candidate pitch range
+pitch_max_deg: 20.0
+weight_pitch: 0.0             # pitch penalty (0 = disabled)
+
+# LiDAR extrinsic: [tx, ty, tz, roll, pitch, yaw]  (m, m, m, deg, deg, deg)
+# Same format as iekf3d/configs/configs.yaml — copy from there.
+lidar_extinct: [1.08, 0.0, 1.643, 1.67, 0.49, 89.24]
+
+# Yaw motion constraint
+max_angular_velocity_deg: 60.0        # deg/s  (gimbal limit)
+max_angular_acceleration_deg: 120.0   # deg/s² (gimbal limit)
+dyaw_deadzone_deg: 5.0                # deadzone to avoid locking

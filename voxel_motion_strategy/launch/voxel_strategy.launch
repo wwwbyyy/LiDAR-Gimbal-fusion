@@ -1,0 +1,5 @@
+<launch>
+  <node pkg="voxel_motion_strategy" type="voxel_motion_strategy_node" name="voxel_motion_strategy_node" output="screen">
+    <rosparam file="$(find voxel_motion_strategy)/configs/voxel_strategy.yaml" command="load" />
+  </node>
+</launch>

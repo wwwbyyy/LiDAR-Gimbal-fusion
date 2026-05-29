@@ -82,6 +82,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   cyber_msgs
   sensor_msgs
+  nav_msgs
 )
 
 find_package(PCL 1.8 REQUIRED COMPONENTS common io kdtree search features)
@@ -113,11 +114,16 @@ target_link_libraries(octomap_builder
   ${OCTOMAP_LIBRARIES}
 )
 
-# --- dummy node (placeholder) ---
+# --- voxel_motion_strategy_node ---
 add_executable(${PROJECT_NAME}_node src/voxel_motion_strategy_node.cpp)
 target_link_libraries(${PROJECT_NAME}_node
+  rectangle_search
+  integral_image
+  erp_projector
+  octomap_builder
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
+  ${OCTOMAP_LIBRARIES}
 )
 
 # --- octomap_test (normal consistency analysis) ---
