@@ -144,9 +144,14 @@ void strategyUpdate(const ros::TimerEvent&) {
   //  so the pre-composition is correct.)
   Eigen::Matrix3d R_erp_to_map = R_vehicle_to_map * g_R_lidar_to_vehicle;
 
-  // 4. Project ERP (full 360° for now; horizontal pruning via integral image)
-  double h_min = -180.0 * M_PI / 180.0;
-  double h_max =  180.0 * M_PI / 180.0;
+  // 4. Project ERP — horizontal pruning to feasible yaw range + FoV margin
+  double fov_hw_rad = g_search_params.fov_horizontal_deg * M_PI / 180.0 * 0.5;
+  double h_min = yr.min - fov_hw_rad;
+  double h_max = yr.max + fov_hw_rad;
+  // No normalization needed — trig functions handle out-of-range angles.
+  // Only guard against zero-width from edge cases.
+  if (h_max - h_min < 1.0 * M_PI / 180.0) h_max = h_min + 1.0 * M_PI / 180.0;
+
   double v_min = g_vfov_min_deg * M_PI / 180.0;
   double v_max = g_vfov_max_deg * M_PI / 180.0;
 
@@ -157,10 +162,8 @@ void strategyUpdate(const ros::TimerEvent&) {
     return;
   }
 
-  // 5. Integral image (with horizontal extension for wraparound)
-  double fov_w_deg = g_search_params.fov_horizontal_deg;
-  int h_extend = static_cast<int>(std::ceil(fov_w_deg / g_erp_params.resolution_deg));
-  IntegralImage ii = IntegralImage::build(erp, h_extend);
+  // 5. Integral image — pruned ERP covers all candidate rectangles, no h_extend needed
+  IntegralImage ii = IntegralImage::build(erp, 0);
 
   // 6. Search best rectangle (yaw in vehicle frame)
   auto result = searchBestRectangle(ii, erp, yr.min, yr.max, g_search_params);
@@ -192,7 +195,7 @@ void strategyUpdate(const ros::TimerEvent&) {
   tilt_cmd.data = target_pitch_deg;
   pub.publish(tilt_cmd);
 
-  ROS_INFO("[Strategy] cmd: yaw=%.1f°(pan=%.1f°) pitch=%.1f° score=%.1f λ=%.1f N=%d",
+  ROS_INFO("[Strategy] cmd: yaw=%.1f (pan=%.1f) pitch=%.1f score=%.1f lambda=%.1f N=%d",
            target_yaw_deg, target_pan_deg, target_pitch_deg,
            result.best_score, result.lambda_min, result.N_eff);
 }

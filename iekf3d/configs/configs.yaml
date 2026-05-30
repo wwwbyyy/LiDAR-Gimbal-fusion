@@ -1,7 +1,7 @@
 # map_path: ../../../data/Changshu1120
-map_path: /home/loc/loc_ws/data/SJTU_251114_allMap
+map_path: /home/loc/loc_ws/data/Changshu25_1120
 
-pointcloud2_topic: /processed_cloud
+pointcloud2_topic: /sim_gimbal_lidar/pointcloud
 # pointcloud2_topic: /driver/hesai/pandar
 gnss_topic: /Inertial/gps/fix
 imu_topic: /Inertial/imu/data

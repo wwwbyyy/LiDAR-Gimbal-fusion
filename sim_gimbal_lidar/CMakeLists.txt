@@ -13,6 +13,7 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
   roslib
+  cyber_msgs
 )
 find_package(PCL 1.8 REQUIRED COMPONENTS common)
 find_package(yaml-cpp REQUIRED)

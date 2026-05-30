@@ -1,5 +1,6 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <std_msgs/Float64MultiArray.h>
+#include <cyber_msgs/GimbalCommand.h>
 #include <pcl/common/common.h>
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -12,57 +13,37 @@
 using PointType = pcl::PointXYZI;
 using CloudType = pcl::PointCloud<PointType>;
 
-ros::Subscriber yaw_deg_sub;
-ros::Subscriber yaw_deg_angular_velocity_sub;
+ros::Subscriber gimbal_cmd_sub;
 ros::Subscriber cloud_sub;
 
-ros::Publisher yaw_deg_pub;
+ros::Publisher pan_pub;         // /pan — same interface as pelco_control
+ros::Publisher tilt_pub;        // /tilt
 ros::Publisher cloud_pub;
 
 struct ProgramConfigs{
   std::string lidar_topic;
-  std::string yaw_deg_topic;
-  std::string yaw_deg_angular_velocity_topic;
-  // float dt; // in second
+  std::string gimbal_cmd_topic;
 } cfg;
-REFLCPP_METAINFO(ProgramConfigs, 
-,(lidar_topic)(yaw_deg_topic)(yaw_deg_angular_velocity_topic));
+REFLCPP_METAINFO(ProgramConfigs, ,(lidar_topic)(gimbal_cmd_topic));
 
 class SimGimbalLidar{
   private:
-    float yaw_deg; // in degree
-    float yaw_deg_angular_velocity; // in deg/s
-    float pitch_deg; // in degree
-    float pitch_deg_angular_velocity; // in deg/s
-
-    float yaw_fov_deg = 70.4f; // in degree
+    float yaw_deg;
+    float pitch_deg;
+    float yaw_fov_deg = 70.4f;
 
   public:
     float get_yaw_deg() { return yaw_deg; }
     float get_pitch_deg() { return pitch_deg; }
-    void set_yaw_deg(float v) { yaw_deg = v; }
+    void set_yaw_deg(float v) {
+      yaw_deg = v;
+      while (yaw_deg > 180.0f) yaw_deg -= 360.0f;
+      while (yaw_deg < -180.0f) yaw_deg += 360.0f;
+    }
     void set_pitch_deg(float v) { pitch_deg = v; }
-    void set_yaw_deg_angular_velocity(float v) { yaw_deg_angular_velocity = v; }
-    void set_pitch_deg_angular_velocity(float v) { pitch_deg_angular_velocity = v; }
-    void update_yaw_deg(float dt)
-    {
-        yaw_deg += yaw_deg_angular_velocity * dt;
-        while (yaw_deg > 180.0) yaw_deg -= 360.0;
-        while (yaw_deg < -180.0) yaw_deg += 360.0;
-    }
-    void update_pitch_deg(float dt)
-    {
-        pitch_deg += pitch_deg_angular_velocity * dt;
-        if (pitch_deg > 90.0) pitch_deg = 90.0;
-        if (pitch_deg < -90.0) pitch_deg = -90.0;
-    }
-    void set_yaw_fov_deg(float v) { yaw_fov_deg = v; }
-    float get_yaw_fov_deg() { return yaw_fov_deg; }
 
     SimGimbalLidar(float init_yaw_deg, float init_pitch_deg):
-        yaw_deg(init_yaw_deg), pitch_deg(init_pitch_deg),
-        yaw_deg_angular_velocity(0.0), pitch_deg_angular_velocity(0.0)
-    {}
+        yaw_deg(init_yaw_deg), pitch_deg(init_pitch_deg) {}
 
     CloudType::Ptr get_pointcloud(CloudType::Ptr p_cloud_in)
     {
@@ -72,9 +53,11 @@ class SimGimbalLidar{
         for (const auto& pt : p_cloud_in->points)
         {
             if (!pcl::isFinite(pt)) continue;
-            float yaw = std::atan2(pt.y, pt.x) * 180.0f / M_PI; // in degree
-            //float pitch = std::atan2(pt.z, std::sqrt(pt.x * pt.x + pt.y * pt.y)) * 180.0f / M_PI; // in degree
-            if (yaw >= yaw_deg - half_fov && yaw <= yaw_deg + half_fov)
+            float yaw = std::atan2(pt.y, pt.x) * 180.0f / M_PI;
+            float diff = yaw - yaw_deg;
+            while (diff > 180.0f) diff -= 360.0f;
+            while (diff < -180.0f) diff += 360.0f;
+            if (std::abs(diff) <= half_fov)
             {
                 p_cloud_out->points.push_back(pt);
             }
@@ -87,26 +70,19 @@ class SimGimbalLidar{
 }
 sim_gimbal_lidar(0.0, 0.0);
 
-void yaw_deg_callback(const std_msgs::Float64MultiArray::ConstPtr& msg)
+void gimbalCmdCallback(const cyber_msgs::GimbalCommand::ConstPtr& msg)
 {
-  sim_gimbal_lidar.set_yaw_deg(msg->data[1]);
-}
-
-void yaw_deg_angular_velocity_callback(const std_msgs::Float64MultiArray::ConstPtr& msg)
-{
-  sim_gimbal_lidar.set_yaw_deg_angular_velocity(msg->data[1]);
+  // PAN  = 0x4B: set absolute pan angle (degrees)
+  // TILT = 0x4D: set absolute tilt angle (degrees)
+  if (msg->cmd == 0x4B) {
+    sim_gimbal_lidar.set_yaw_deg(static_cast<float>(msg->data));
+  } else if (msg->cmd == 0x4D) {
+    sim_gimbal_lidar.set_pitch_deg(static_cast<float>(msg->data));
+  }
 }
 
 void pointcloud2_callback(const sensor_msgs::PointCloud2ConstPtr& msg)
 {
-  static double last_time = msg->header.stamp.toSec();
-  double current_time = msg->header.stamp.toSec();
-  double dt = current_time - last_time;
-  last_time = current_time;
-
-  sim_gimbal_lidar.update_yaw_deg(dt);
-  //sim_gimbal_lidar.update_pitch_deg(dt);
-
   CloudType::Ptr p_cloud_in(new CloudType);
   pcl::fromROSMsg(*msg, *p_cloud_in);
 
@@ -117,11 +93,18 @@ void pointcloud2_callback(const sensor_msgs::PointCloud2ConstPtr& msg)
   msg_out.header = msg->header;
   cloud_pub.publish(msg_out);
 
-  std_msgs::Float64MultiArray yaw_msg;
-  yaw_msg.data.resize(2);
-  yaw_msg.data[0] = msg->header.stamp.toSec();
-  yaw_msg.data[1] = sim_gimbal_lidar.get_yaw_deg();
-  yaw_deg_pub.publish(yaw_msg);
+  // Publish feedback — same format as pelco_control
+  std_msgs::Float64MultiArray pan_msg;
+  pan_msg.data.resize(2);
+  pan_msg.data[0] = msg->header.stamp.toSec();
+  pan_msg.data[1] = sim_gimbal_lidar.get_yaw_deg();
+  pan_pub.publish(pan_msg);
+
+  std_msgs::Float64MultiArray tilt_msg;
+  tilt_msg.data.resize(2);
+  tilt_msg.data[0] = msg->header.stamp.toSec();
+  tilt_msg.data[1] = sim_gimbal_lidar.get_pitch_deg();
+  tilt_pub.publish(tilt_msg);
 }
 
 int main(int argc, char** argv)
@@ -132,19 +115,20 @@ int main(int argc, char** argv)
   std::string strSrcFolder = ros::package::getPath("sim_gimbal_lidar");
   cfg = YAML::LoadFile(strSrcFolder + "/configs/configs.yaml")
           .as<ProgramConfigs>();
-  
-  std::cout << "lidar_topic: " << cfg.lidar_topic << std::endl
-            << "yaw_deg_topic: " << cfg.yaw_deg_topic << std::endl
-            << "yaw_deg_angular_velocity_topic: " << cfg.yaw_deg_angular_velocity_topic << std::endl;
-  
-  yaw_deg_sub = nh.subscribe<std_msgs::Float64MultiArray>(cfg.yaw_deg_topic, 10, yaw_deg_callback);
-  yaw_deg_angular_velocity_sub = nh.subscribe<std_msgs::Float64MultiArray>(cfg.yaw_deg_angular_velocity_topic, 10, yaw_deg_angular_velocity_callback);
-  cloud_sub = nh.subscribe<sensor_msgs::PointCloud2>(cfg.lidar_topic, 10, pointcloud2_callback);
 
-  yaw_deg_pub = nh.advertise<std_msgs::Float64MultiArray>("/sim_gimbal_lidar/yaw_deg", 10);
-  cloud_pub = nh.advertise<sensor_msgs::PointCloud2>("/sim_gimbal_lidar/pointcloud", 10);
+  std::cout << "lidar_topic: " << cfg.lidar_topic << std::endl
+            << "gimbal_cmd_topic: " << cfg.gimbal_cmd_topic << std::endl;
+
+  gimbal_cmd_sub = nh.subscribe<cyber_msgs::GimbalCommand>(
+      cfg.gimbal_cmd_topic, 10, gimbalCmdCallback);
+  cloud_sub = nh.subscribe<sensor_msgs::PointCloud2>(
+      cfg.lidar_topic, 10, pointcloud2_callback);
+
+  pan_pub   = nh.advertise<std_msgs::Float64MultiArray>("/pan", 10);
+  tilt_pub  = nh.advertise<std_msgs::Float64MultiArray>("/tilt", 10);
+  cloud_pub = nh.advertise<sensor_msgs::PointCloud2>(
+      "/sim_gimbal_lidar/pointcloud", 10);
 
   ros::spin();
-
   return 0;
 }

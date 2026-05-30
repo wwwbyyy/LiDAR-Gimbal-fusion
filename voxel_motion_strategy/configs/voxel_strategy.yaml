@@ -1,7 +1,7 @@
 # Voxel Motion Strategy — configuration
 
 # Path to pre-built octomap (prefix for .ot + .normals files)
-octomap_prefix: "/home/loc/loc_ws/data/octomap_test_out"
+octomap_prefix: "/home/loc/loc_ws/data/SJTU_251114_allMap/octomap"
 
 # Strategy update rate (Hz)
 strategy_rate: 4.0
@@ -26,6 +26,6 @@ weight_pitch: 0.0             # pitch penalty (0 = disabled)
 lidar_extinct: [1.08, 0.0, 1.643, 1.67, 0.49, 89.24]
 
 # Yaw motion constraint
-max_angular_velocity_deg: 60.0        # deg/s  (gimbal limit)
+max_angular_velocity_deg: 90.0        # deg/s  (gimbal limit)
 max_angular_acceleration_deg: 120.0   # deg/s² (gimbal limit)
 dyaw_deadzone_deg: 5.0                # deadzone to avoid locking
