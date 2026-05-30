@@ -30,6 +30,8 @@ class SimGimbalLidar{
   private:
     float yaw_deg;
     float pitch_deg;
+    float yaw_vel_dps = 0.0f;         // angular velocity (deg/s)
+    float pitch_vel_dps = 0.0f;
     float yaw_fov_deg = 70.4f;
 
   public:
@@ -41,6 +43,16 @@ class SimGimbalLidar{
       while (yaw_deg < -180.0f) yaw_deg += 360.0f;
     }
     void set_pitch_deg(float v) { pitch_deg = v; }
+    void set_yaw_vel_dps(float v) { yaw_vel_dps = v; }
+    void set_pitch_vel_dps(float v) { pitch_vel_dps = v; }
+    void update_dt(float dt) {
+      yaw_deg += yaw_vel_dps * dt;
+      while (yaw_deg > 180.0f) yaw_deg -= 360.0f;
+      while (yaw_deg < -180.0f) yaw_deg += 360.0f;
+      pitch_deg += pitch_vel_dps * dt;
+      if (pitch_deg > 90.0f) pitch_deg = 90.0f;
+      if (pitch_deg < -90.0f) pitch_deg = -90.0f;
+    }
 
     SimGimbalLidar(float init_yaw_deg, float init_pitch_deg):
         yaw_deg(init_yaw_deg), pitch_deg(init_pitch_deg) {}
@@ -72,17 +84,43 @@ sim_gimbal_lidar(0.0, 0.0);
 
 void gimbalCmdCallback(const cyber_msgs::GimbalCommand::ConstPtr& msg)
 {
-  // PAN  = 0x4B: set absolute pan angle (degrees)
-  // TILT = 0x4D: set absolute tilt angle (degrees)
-  if (msg->cmd == 0x4B) {
-    sim_gimbal_lidar.set_yaw_deg(static_cast<float>(msg->data));
-  } else if (msg->cmd == 0x4D) {
-    sim_gimbal_lidar.set_pitch_deg(static_cast<float>(msg->data));
+  float val = static_cast<float>(msg->data);
+  switch (msg->cmd) {
+    case 0x00:  // STOP
+      sim_gimbal_lidar.set_yaw_vel_dps(0.0f);
+      sim_gimbal_lidar.set_pitch_vel_dps(0.0f);
+      break;
+    case 0x02:  // RIGHT
+      sim_gimbal_lidar.set_yaw_vel_dps(val);
+      break;
+    case 0x04:  // LEFT
+      sim_gimbal_lidar.set_yaw_vel_dps(-val);
+      break;
+    case 0x08:  // UP
+      sim_gimbal_lidar.set_pitch_vel_dps(val);
+      break;
+    case 0x10:  // DOWN
+      sim_gimbal_lidar.set_pitch_vel_dps(-val);
+      break;
+    case 0x4B:  // PAN absolute position
+      sim_gimbal_lidar.set_yaw_vel_dps(0.0f);
+      sim_gimbal_lidar.set_yaw_deg(val);
+      break;
+    case 0x4D:  // TILT absolute position
+      sim_gimbal_lidar.set_pitch_vel_dps(0.0f);
+      sim_gimbal_lidar.set_pitch_deg(val);
+      break;
   }
 }
 
 void pointcloud2_callback(const sensor_msgs::PointCloud2ConstPtr& msg)
 {
+  static double last_time = msg->header.stamp.toSec();
+  double current_time = msg->header.stamp.toSec();
+  double dt = current_time - last_time;
+  last_time = current_time;
+  sim_gimbal_lidar.update_dt(static_cast<float>(dt));
+
   CloudType::Ptr p_cloud_in(new CloudType);
   pcl::fromROSMsg(*msg, *p_cloud_in);
 

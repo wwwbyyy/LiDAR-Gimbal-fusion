@@ -15,7 +15,7 @@ voxel_leaf:   1.5
 range_filter_min: 2.0
 range_filter_max: 200
 
-local_range:  200
+local_range:  160
 update_range: 80
 
 tracking_bad_fitness: 0.0
