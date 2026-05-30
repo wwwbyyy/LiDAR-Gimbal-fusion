@@ -31,6 +31,7 @@ ERPImage projectERP(const OctomapBuilder& builder,
 
   const double res = img.resolution_rad;
   const double range_max = params.range_max_m;
+  const double self_range = params.self_range_m;
 
   // Image dimensions
   double h_span = h_max_rad - h_min_rad;
@@ -112,9 +113,19 @@ ERPImage projectERP(const OctomapBuilder& builder,
           Eigen::Vector3f normal;
           int count;
           if (builder.getNormalAt(key, normal, count)) {
-            img.normals[idx] = normal;
             img.occupied[idx] = 1;
             hit_count++;
+
+            double dx = static_cast<double>(end.x() - origin.x());
+            double dy = static_cast<double>(end.y() - origin.y());
+            double dz = static_cast<double>(end.z() - origin.z());
+            bool too_close = (dx*dx + dy*dy + dz*dz) < self_range * self_range;
+
+            if (too_close) {
+              img.normals[idx] = Eigen::Vector3f::Zero(); // counted but contributes 0 to S
+            } else {
+              img.normals[idx] = normal;
+            }
           }
         }
       }

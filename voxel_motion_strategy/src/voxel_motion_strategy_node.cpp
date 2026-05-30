@@ -212,6 +212,7 @@ int main(int argc, char** argv) {
 
   nh.param<double>("erp_resolution_deg", g_erp_params.resolution_deg, 1.0);
   nh.param<double>("erp_range_max_m", g_erp_params.range_max_m, 150.0);
+  nh.param<double>("erp_self_range_m", g_erp_params.self_range_m, 2.0);
   nh.param<double>("erp_vfov_min_deg", g_vfov_min_deg, -90.0);
   nh.param<double>("erp_vfov_max_deg", g_vfov_max_deg, 60.0);
 

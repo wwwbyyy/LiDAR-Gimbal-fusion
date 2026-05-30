@@ -40,6 +40,7 @@ struct ERPImage {
 struct ERPParams {
   double resolution_deg = 1.0;      // degrees per pixel
   double range_max_m = 150.0;       // max ray distance
+  double self_range_m = 2.0;        // voxels closer than this → n = (0,0,0)
 };
 
 /// Project occupied voxels from an Octomap into an equirectangular image.
