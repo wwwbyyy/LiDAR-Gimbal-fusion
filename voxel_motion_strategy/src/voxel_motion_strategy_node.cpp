@@ -35,6 +35,7 @@ static ERPParams g_erp_params;
 static RectSearchParams g_search_params;
 static YawConstraintParams g_yaw_params;
 static double g_strategy_rate = 4.0;  // Hz
+static RectSearchResult g_prev_result;     // hysteresis state
 static double g_vfov_min_deg = -90.0;
 static double g_vfov_max_deg = 60.0;
 
@@ -173,6 +174,34 @@ void strategyUpdate(const ros::TimerEvent&) {
     return;
   }
 
+  // Hysteresis: re-query score at previous best yaw on the CURRENT integral image,
+  // then compare on equal footing. Avoids cross-frame score lock.
+  double hyst = g_search_params.hysteresis_ratio;
+  if (g_prev_result.valid && hyst > 0.0) {
+    double same_peak_tol = g_search_params.yaw_step_deg * M_PI / 180.0 * 0.5 + 1e-9;
+    bool same_peak = std::abs(result.best_yaw_rad - g_prev_result.best_yaw_rad) <= same_peak_tol;
+
+    if (!same_peak) {
+      // Re-search with yaw clamped around previous best to get its CURRENT score
+      double dyaw = g_search_params.yaw_step_deg * M_PI / 180.0 * 0.5 + 1e-9;
+      auto prev_cur = searchBestRectangle(ii, erp,
+          g_prev_result.best_yaw_rad - dyaw,
+          g_prev_result.best_yaw_rad + dyaw, g_search_params);
+
+      if (prev_cur.valid) {
+        double cur_score_at_prev = prev_cur.best_score;
+        double threshold = cur_score_at_prev * (1.0 + hyst);
+        if (result.best_score <= threshold) {
+          ROS_DEBUG("[Strategy] hysteresis: keeping yaw=%.1f° score=%.1f (new=%.1f° score=%.1f thresh=%.1f)",
+                    prev_cur.best_yaw_rad * 180.0 / M_PI, cur_score_at_prev,
+                    result.best_yaw_rad * 180.0 / M_PI, result.best_score, threshold);
+          result = prev_cur;
+        }
+      }
+    }
+  }
+  g_prev_result = result;
+
   // 7. Publish gimbal commands
   double target_yaw_deg = result.best_yaw_rad * 180.0 / M_PI;
   double target_pitch_deg = result.best_pitch_rad * 180.0 / M_PI;
@@ -198,6 +227,16 @@ void strategyUpdate(const ros::TimerEvent&) {
   ROS_INFO("[Strategy] cmd: yaw=%.1f (pan=%.1f) pitch=%.1f score=%.1f lambda=%.1f N=%d",
            target_yaw_deg, target_pan_deg, target_pitch_deg,
            result.best_score, result.lambda_min, result.N_eff);
+
+  // LiDAR pose in map frame for debugging
+  {
+    Eigen::Vector3d fwd = R_erp_to_map.col(0);  // LiDAR +X in map frame
+    double lidar_yaw = std::atan2(fwd.y(), fwd.x());
+    double lidar_pitch = std::asin(fwd.z());
+    ROS_DEBUG("[Strategy] LiDAR pose: pos=(%.2f, %.2f, %.2f) yaw=%.1f° pitch=%.1f°",
+              origin_map.x(), origin_map.y(), origin_map.z(),
+              lidar_yaw * 180.0 / M_PI, lidar_pitch * 180.0 / M_PI);
+  }
 }
 
 // ---- main ----
@@ -242,6 +281,7 @@ int main(int argc, char** argv) {
   nh.param<double>("pitch_min_deg",      g_search_params.pitch_min_deg,     -50.0);
   nh.param<double>("pitch_max_deg",      g_search_params.pitch_max_deg,      20.0);
   nh.param<double>("weight_pitch",       g_search_params.weight_pitch,       0.0);
+  nh.param<double>("hysteresis_ratio",   g_search_params.hysteresis_ratio,   0.05);
 
   {
     double max_vel_dps, max_acc_dps2, deadzone_deg;

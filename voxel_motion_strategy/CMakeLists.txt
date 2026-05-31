@@ -64,6 +64,7 @@ target_link_libraries(rect_viz
   ${catkin_LIBRARIES}
   ${PCL_LIBRARIES}
   ${OCTOMAP_LIBRARIES}
+  yaml-cpp
 )
 
 # --- erp_viz (quick depth map visualization) ---
@@ -88,6 +89,7 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(PCL 1.8 REQUIRED COMPONENTS common io kdtree search features)
 find_package(octomap REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 catkin_package(
   INCLUDE_DIRS include
@@ -100,6 +102,7 @@ include_directories(
   ${PCL_INCLUDE_DIRS}
   ${OCTOMAP_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIRS}
+  ${YAML_CPP_INCLUDE_DIR}
 )
 
 link_directories(${OCTOMAP_LIBRARY_DIRS})

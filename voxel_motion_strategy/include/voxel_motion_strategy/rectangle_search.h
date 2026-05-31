@@ -9,6 +9,7 @@ namespace voxel_motion_strategy {
 
 struct RectSearchParams {
   double weight_pitch = 0.01;        // a: penalty for downward pitch (pitch↑ → score↓)
+  double hysteresis_ratio = 0.05;    // switch only if new_score > prev_best × (1+ratio) (0=disabled)
   double yaw_step_deg = 3.0;         // search granularity (azimuth)
   double pitch_step_deg = 3.0;       // search granularity (elevation)
   double pitch_min_deg = -50.0;      // candidate pitch lower bound (looking up)
