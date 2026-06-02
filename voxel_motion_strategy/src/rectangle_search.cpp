@@ -99,12 +99,14 @@ RectSearchResult searchBestRectangle(const IntegralImage& ii,
     }
   }
 
-  std::cout << "[RectSearch] Searched " << candidates << " candidates ("
-            << skipped_empty << " empty), best: yaw="
-            << best.best_yaw_rad * 180.0 / M_PI << "° pitch="
-            << best.best_pitch_rad * 180.0 / M_PI << "° score="
-            << best.best_score << " λ_min=" << best.lambda_min
-            << " N=" << best.N_eff << std::endl;
+  if (g_verbose) {
+    std::cout << "[RectSearch] Searched " << candidates << " candidates ("
+              << skipped_empty << " empty), best: yaw="
+              << best.best_yaw_rad * 180.0 / M_PI << "° pitch="
+              << best.best_pitch_rad * 180.0 / M_PI << "° score="
+              << best.best_score << " λ_min=" << best.lambda_min
+              << " N=" << best.N_eff << std::endl;
+  }
 
   return best;
 }

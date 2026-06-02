@@ -6,6 +6,10 @@
 
 namespace voxel_motion_strategy {
 
+/// Global verbose flag — controls std::cout from library internals.
+/// Set to false in ROS nodes. Standalone tools keep default (true).
+extern bool g_verbose;
+
 class OctomapBuilder;
 
 struct ERPImage {

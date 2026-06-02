@@ -243,6 +243,7 @@ void strategyUpdate(const ros::TimerEvent&) {
 
 int main(int argc, char** argv) {
   ros::init(argc, argv, "voxel_motion_strategy_node");
+  g_verbose = false;  // suppress library std::cout, use ROS logging instead
   ros::NodeHandle nh("~");  // private namespace for params
 
   // Load params

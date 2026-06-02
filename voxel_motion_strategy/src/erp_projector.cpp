@@ -13,6 +13,8 @@
 
 namespace voxel_motion_strategy {
 
+bool g_verbose = true;
+
 ERPImage projectERP(const OctomapBuilder& builder,
                      const Eigen::Vector3d& origin_map,
                      const Eigen::Matrix3d& R_erp_to_map,
@@ -57,11 +59,13 @@ ERPImage projectERP(const OctomapBuilder& builder,
                            static_cast<float>(origin_map.y()),
                            static_cast<float>(origin_map.z()));
 
-  std::cout << "[ERP] Projecting " << img.width << "x" << img.height
-            << " (" << npix << " pixels), h=[" << h_min_rad * 180.0 / M_PI
-            << "°, " << h_max_rad * 180.0 / M_PI << "°] v=["
-            << v_min_rad * 180.0 / M_PI << "°, " << v_max_rad * 180.0 / M_PI
-            << "°]" << std::endl;
+  if (g_verbose) {
+    std::cout << "[ERP] Projecting " << img.width << "x" << img.height
+              << " (" << npix << " pixels), h=[" << h_min_rad * 180.0 / M_PI
+              << "°, " << h_max_rad * 180.0 / M_PI << "°] v=["
+              << v_min_rad * 180.0 / M_PI << "°, " << v_max_rad * 180.0 / M_PI
+              << "°]" << std::endl;
+  }
 
   size_t hit_count = 0;
 
@@ -133,10 +137,12 @@ ERPImage projectERP(const OctomapBuilder& builder,
     }
   }
 
-  std::cout << "[ERP] Done: " << hit_count << " hits, "
-            << (npix - hit_count) << " misses ("
-            << (npix > 0 ? 100.0 * hit_count / npix : 0) << "% hit rate)"
-            << std::endl;
+  if (g_verbose) {
+    std::cout << "[ERP] Done: " << hit_count << " hits, "
+              << (npix - hit_count) << " misses ("
+              << (npix > 0 ? 100.0 * hit_count / npix : 0) << "% hit rate)"
+              << std::endl;
+  }
 
   return img;
 }
