@@ -5,6 +5,7 @@
 #include <cmath>
 #include <algorithm>
 #include <iomanip>
+#include <numeric>
 
 #include <Eigen/Eigenvalues>
 
