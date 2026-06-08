@@ -1,7 +1,8 @@
 # map_path: ../../../data/Changshu1120
-map_path: /home/loc/loc_ws/data/Changshu25_1120
+map_path: /home/loc/loc_ws/data/dianwanghesai
 
-pointcloud2_topic: /sim_gimbal_lidar/pointcloud
+pointcloud2_topic: /processed_cloud
+# pointcloud2_topic: /sim_gimbal_lidar/pointcloud
 # pointcloud2_topic: /driver/hesai/pandar
 gnss_topic: /Inertial/gps/fix
 imu_topic: /Inertial/imu/data
@@ -12,7 +13,7 @@ valid_gnss_status: [2]
 
 voxel_leaf:   1.5
 
-range_filter_min: 2.0
+range_filter_min: 0.5
 range_filter_max: 200
 
 local_range:  160
@@ -38,8 +39,8 @@ tracking_bad_fitness: 0.0
 #               0.0905564504668786   , 0.9956202031422988   , 0.023258606875406075 , 0.10323641538619001, 
 # lidar_extinct: [1.15, 0, 1.96, 0, 0, 1.5315] #hesai
 #lidar_extinct: [0, 0, 0, 0, 0, 2.0551] #livox
-# lidar_extinct: [-0.01369, 0.017762, 1.204947, -4.822328, 0.328543, 131.798287]
-lidar_extinct: [1.08, 0, 1.643, 1.67, 0.49, 89.24]
+lidar_extinct: [-0.239214, 0.171759, 1.499221, 1.759382, -0.311256, -21.859441]
+# lidar_extinct: [1.08, 0, 1.643, 1.67, 0.49, 89.24]
 
 # imu -> body(gps)
 imu_extinct: [0, 0, 1.5524763267948967]
