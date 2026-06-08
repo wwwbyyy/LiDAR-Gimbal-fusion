@@ -31,7 +31,8 @@ octomap::OcTreeKey OctomapBuilder::u64ToKey(uint64_t val) {
 bool OctomapBuilder::buildFromPLY(const std::string& points_file,
                                    const std::string& normals_file,
                                    double resolution,
-                                   double range_max) {
+                                   double range_max,
+                                   int min_points_per_voxel) {
   // Load point cloud
   pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>);
   std::cout << "[OctomapBuilder] Loading " << points_file << " ..." << std::endl;
@@ -116,6 +117,27 @@ bool OctomapBuilder::buildFromPLY(const std::string& points_file,
       vd.normal.normalize();
       vd.point_count++;
     }
+  }
+
+  // Filter voxels below point-count threshold: erase from map, rebuild tree
+  if (min_points_per_voxel > 1) {
+    size_t removed = 0;
+    auto it = voxel_data_.begin();
+    while (it != voxel_data_.end()) {
+      if (it->second.point_count < min_points_per_voxel) {
+        it = voxel_data_.erase(it);
+        removed++;
+      } else {
+        ++it;
+      }
+    }
+    // Rebuild tree from filtered voxel set (deleteNode + prune may corrupt)
+    tree_->clear();
+    for (const auto& kv : voxel_data_) {
+      tree_->updateNode(u64ToKey(kv.first), true);
+    }
+    std::cout << "[OctomapBuilder] Filtered " << removed
+              << " voxels (min_points<" << min_points_per_voxel << ")." << std::endl;
   }
 
   // Shrink to fit

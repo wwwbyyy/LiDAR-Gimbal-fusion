@@ -1,7 +1,7 @@
 # Voxel Motion Strategy — configuration
 
 # Path to pre-built octomap (prefix for .ot + .normals files)
-octomap_prefix: "/home/loc/loc_ws/data/Changshu25_1120/octomap"
+octomap_prefix: "/home/loc/loc_ws/data/dianwanghesai/octomap"
 
 # Strategy update rate (Hz)
 strategy_rate: 1.5

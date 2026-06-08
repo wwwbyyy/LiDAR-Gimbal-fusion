@@ -25,10 +25,12 @@ class OctomapBuilder {
   /// normals_file: .ply with precomputed normals (same count as points).
   /// resolution: octree voxel size in meters.
   /// range_max: ignore points beyond this distance from origin (negative = unlimited).
+  /// min_points_per_voxel: voxels with fewer points are discarded (≥1).
   bool buildFromPLY(const std::string& points_file,
                     const std::string& normals_file,
                     double resolution = 1.0,
-                    double range_max = 150.0);
+                    double range_max = 150.0,
+                    int min_points_per_voxel = 5);
 
   /// Serialize to disk (prefix.ot + prefix.normals).
   bool save(const std::string& prefix) const;
