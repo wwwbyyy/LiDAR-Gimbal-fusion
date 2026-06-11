@@ -1,0 +1,12 @@
+<launch>
+  <node pkg="pelco_control" type="pelco_control_node" name="pelco_control_node"
+        output="screen" required="true" />
+
+  <node pkg="gimbal_disturbance_test" type="gimbal_disturbance_test_node"
+        name="disturbance_test_node" output="screen" required="true" />
+
+  <node pkg="rosbag" type="record" name="bag_recorder"
+        args="record -o /home/loc/loc_ws/test_results/disturbance_test
+              /gimbal_cmd /pan /tilt /livox/imu"
+        output="screen" />
+</launch>

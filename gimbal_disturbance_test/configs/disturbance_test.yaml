@@ -1,0 +1,4 @@
+home_pan_deg: 0.0
+home_tilt_deg: 0.0
+hold_duration_s: 30.0
+loop_rate_hz: 50
