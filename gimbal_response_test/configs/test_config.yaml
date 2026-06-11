@@ -1,0 +1,10 @@
+# ---- General ----
+loop_rate_hz: 50
+home_pan_deg: 0.0
+home_tilt_deg: 0.0
+post_test_home: true
+
+# ---- Step Response Test ----
+hold_time_s: 3.0
+pan_angles_deg: [0.0, 30.0, -30.0, 0.0]
+tilt_angles_deg: [0.0, 20.0, -20.0, 0.0]
