@@ -37,7 +37,27 @@ int main(int argc, char** argv) {
 
     ros::Time t_start = ros::Time::now();
 
-    ros::Timer timer = nh.createTimer(ros::Duration(1.0 / cfg.loop_rate_hz),
+    double tilt_cmd = std::max(-80.0, std::min(80.0, cfg.home_tilt_deg));
+
+    // Publish initial hold command once
+    {
+        ros::Time now = ros::Time::now();
+        cyber_msgs::GimbalCommand pan_msg;
+        pan_msg.header.stamp = now;
+        pan_msg.cmd = 0x4B;
+        pan_msg.data = cfg.home_pan_deg;
+        cmd_pub.publish(pan_msg);
+
+        cyber_msgs::GimbalCommand tilt_msg;
+        tilt_msg.header.stamp = now;
+        tilt_msg.cmd = 0x4D;
+        tilt_msg.data = tilt_cmd;
+        cmd_pub.publish(tilt_msg);
+    }
+    ROS_INFO("Hold command sent.");
+
+    // Low-rate keep-alive and countdown timer
+    ros::Timer timer = nh.createTimer(ros::Duration(5.0),
         [&](const ros::TimerEvent&) {
             double elapsed = (ros::Time::now() - t_start).toSec();
 
@@ -47,24 +67,19 @@ int main(int argc, char** argv) {
                 return;
             }
 
-            // Print a countdown every 10 seconds
-            static int last_announced = 0;
             int remaining = (int)(cfg.hold_duration_s - elapsed);
-            if (remaining % 10 == 0 && remaining != last_announced) {
-                ROS_INFO("  %ds remaining...", remaining);
-                last_announced = remaining;
-            }
+            ROS_INFO("  %ds remaining...", remaining);
 
-            double tilt_cmd = std::max(-80.0, std::min(80.0, cfg.home_tilt_deg));
-
+            // Keep-alive: re-send hold command every 5s
+            ros::Time now = ros::Time::now();
             cyber_msgs::GimbalCommand pan_msg;
-            pan_msg.header.stamp = ros::Time::now();
+            pan_msg.header.stamp = now;
             pan_msg.cmd = 0x4B;
             pan_msg.data = cfg.home_pan_deg;
             cmd_pub.publish(pan_msg);
 
             cyber_msgs::GimbalCommand tilt_msg;
-            tilt_msg.header.stamp = ros::Time::now();
+            tilt_msg.header.stamp = now;
             tilt_msg.cmd = 0x4D;
             tilt_msg.data = tilt_cmd;
             cmd_pub.publish(tilt_msg);

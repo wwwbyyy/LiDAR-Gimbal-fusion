@@ -50,9 +50,28 @@ int main(int argc, char** argv) {
 
     ros::Publisher cmd_pub = nh.advertise<cyber_msgs::GimbalCommand>("/gimbal_cmd", 10);
 
+    auto publish = [&](double pan_deg, double tilt_deg) {
+        tilt_deg = std::max(-80.0, std::min(80.0, tilt_deg));
+        ros::Time now = ros::Time::now();
+
+        cyber_msgs::GimbalCommand pan_msg;
+        pan_msg.header.stamp = now;
+        pan_msg.cmd = 0x4B;
+        pan_msg.data = pan_deg;
+        cmd_pub.publish(pan_msg);
+
+        cyber_msgs::GimbalCommand tilt_msg;
+        tilt_msg.header.stamp = now;
+        tilt_msg.cmd = 0x4D;
+        tilt_msg.data = tilt_deg;
+        cmd_pub.publish(tilt_msg);
+    };
+
     TestPhase phase = PHASE_IDLE;
     ros::Time phase_start;
     int step_idx = 0;
+    double prev_pan = cfg.home_pan_deg;
+    double prev_tilt = cfg.home_tilt_deg;
 
     ros::Timer timer = nh.createTimer(ros::Duration(1.0 / cfg.loop_rate_hz),
         [&](const ros::TimerEvent&) {
@@ -61,21 +80,23 @@ int main(int argc, char** argv) {
 
             double pan_cmd = cfg.home_pan_deg;
             double tilt_cmd = cfg.home_tilt_deg;
+            bool phase_changed = false;
 
             switch (phase) {
                 case PHASE_IDLE:
                     phase = PHASE_HOME;
                     phase_start = now;
+                    phase_changed = true;
                     ROS_INFO("Phase: HOME");
-                    return;
+                    break;
 
                 case PHASE_HOME:
                     if (elapsed > 1.5) {
                         phase = PHASE_STEP_PAN;
                         phase_start = now;
                         step_idx = 0;
+                        phase_changed = true;
                         ROS_INFO("Phase: STEP_PAN (%zu steps)", cfg.pan_angles_deg.size());
-                        return;
                     }
                     break;
 
@@ -84,15 +105,16 @@ int main(int argc, char** argv) {
                         phase = PHASE_STEP_TILT;
                         phase_start = now;
                         step_idx = 0;
+                        phase_changed = true;
                         ROS_INFO("Phase: STEP_TILT (%zu steps)", cfg.tilt_angles_deg.size());
-                        return;
-                    }
-                    pan_cmd = cfg.pan_angles_deg[step_idx];
-                    if (elapsed > cfg.hold_time_s) {
-                        step_idx++;
-                        phase_start = now;
-                        if (step_idx < (int)cfg.pan_angles_deg.size()) {
-                            ROS_INFO("  PAN step %d: %.1f deg", step_idx, cfg.pan_angles_deg[step_idx]);
+                    } else {
+                        pan_cmd = cfg.pan_angles_deg[step_idx];
+                        if (elapsed > cfg.hold_time_s) {
+                            step_idx++;
+                            phase_start = now;
+                            if (step_idx < (int)cfg.pan_angles_deg.size()) {
+                                ROS_INFO("  PAN step %d: %.1f deg", step_idx, cfg.pan_angles_deg[step_idx]);
+                            }
                         }
                     }
                     break;
@@ -101,23 +123,22 @@ int main(int argc, char** argv) {
                     if (step_idx >= (int)cfg.tilt_angles_deg.size()) {
                         phase = PHASE_DONE;
                         phase_start = now;
+                        phase_changed = true;
                         ROS_INFO("Phase: DONE");
-                        return;
-                    }
-                    tilt_cmd = cfg.tilt_angles_deg[step_idx];
-                    if (elapsed > cfg.hold_time_s) {
-                        step_idx++;
-                        phase_start = now;
-                        if (step_idx < (int)cfg.tilt_angles_deg.size()) {
-                            ROS_INFO("  TILT step %d: %.1f deg", step_idx, cfg.tilt_angles_deg[step_idx]);
+                    } else {
+                        tilt_cmd = cfg.tilt_angles_deg[step_idx];
+                        if (elapsed > cfg.hold_time_s) {
+                            step_idx++;
+                            phase_start = now;
+                            if (step_idx < (int)cfg.tilt_angles_deg.size()) {
+                                ROS_INFO("  TILT step %d: %.1f deg", step_idx, cfg.tilt_angles_deg[step_idx]);
+                            }
                         }
                     }
                     break;
 
                 case PHASE_DONE:
                     if (cfg.post_test_home) {
-                        pan_cmd = cfg.home_pan_deg;
-                        tilt_cmd = cfg.home_tilt_deg;
                         if (elapsed > 2.0) {
                             ros::shutdown();
                             return;
@@ -131,17 +152,12 @@ int main(int argc, char** argv) {
 
             tilt_cmd = std::max(-80.0, std::min(80.0, tilt_cmd));
 
-            cyber_msgs::GimbalCommand pan_msg;
-            pan_msg.header.stamp = now;
-            pan_msg.cmd = 0x4B;  // PAN
-            pan_msg.data = pan_cmd;
-            cmd_pub.publish(pan_msg);
-
-            cyber_msgs::GimbalCommand tilt_msg;
-            tilt_msg.header.stamp = now;
-            tilt_msg.cmd = 0x4D;  // TILT
-            tilt_msg.data = tilt_cmd;
-            cmd_pub.publish(tilt_msg);
+            // Only publish when the target changes, to avoid flooding the serial queue
+            if (phase_changed || pan_cmd != prev_pan || tilt_cmd != prev_tilt) {
+                publish(pan_cmd, tilt_cmd);
+                prev_pan = pan_cmd;
+                prev_tilt = tilt_cmd;
+            }
         });
 
     ros::spin();
