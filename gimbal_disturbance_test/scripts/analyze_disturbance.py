@@ -26,8 +26,11 @@ GRAVITY_STILL_S = 2.0       # use first N seconds to estimate gravity
 ACCEL_THRESHOLD = 0.5        # m/s^2, below this considered "still"
 
 
-def load_bag(bag_path):
-    """Extract command, feedback, and IMU time series."""
+def load_bag(bag_path, tilt_bias=0.0):
+    """Extract command, feedback, and IMU time series.
+
+    tilt_bias: added to raw TILT feedback BEFORE any processing.
+    """
     cmd_pan_t, cmd_pan_v = [], []
     cmd_tilt_t, cmd_tilt_v = [], []
     fb_pan_t, fb_pan_v = [], []
@@ -49,30 +52,35 @@ def load_bag(bag_path):
             fb_pan_v.append(msg.data[1])
         elif topic == "/tilt":
             fb_tilt_t.append(msg.data[0] if msg.data[0] > 1e9 else ts)
-            fb_tilt_v.append(msg.data[1])
+            fb_tilt_v.append(msg.data[1] + tilt_bias)
         elif topic == "/livox/imu":
             imu_t.append(ts)
-            imu_ax.append(msg.linear_acceleration.x)
-            imu_ay.append(msg.linear_acceleration.y)
-            imu_az.append(msg.linear_acceleration.z)
+            imu_ax.append(msg.linear_acceleration.x * 9.81)
+            imu_ay.append(msg.linear_acceleration.y * 9.81)
+            imu_az.append(msg.linear_acceleration.z * 9.81)
     bag.close()
 
     missing = []
-    if not cmd_pan_t: missing.append("/gimbal_cmd PAN")
+    if not cmd_pan_t and not cmd_tilt_t: missing.append("/gimbal_cmd")
     if not fb_pan_t: missing.append("/pan")
     if not imu_t: missing.append("/livox/imu")
     if missing:
         print(f"ERROR: No messages found for: {', '.join(missing)}")
         sys.exit(1)
 
-    t0 = min(cmd_pan_t[0] if cmd_pan_t else float("inf"),
+    t0 = min((cmd_pan_t[0] if cmd_pan_t else float("inf")),
+             (cmd_tilt_t[0] if cmd_tilt_t else float("inf")),
              fb_pan_t[0] if fb_pan_t else float("inf"),
              imu_t[0] if imu_t else float("inf"))
 
+    def make_ts(v_t, v_v):
+        return (np.array(v_t) - t0, np.array(v_v)) if v_t else (np.array([]), np.array([]))
+
     return {
-        "cmd_pan": (np.array(cmd_pan_t) - t0, np.array(cmd_pan_v)),
-        "fb_pan": (np.array(fb_pan_t) - t0, np.array(fb_pan_v)),
-        "fb_tilt": (np.array(fb_tilt_t) - t0, np.array(fb_tilt_v)) if fb_tilt_t else (np.array([]), np.array([])),
+        "cmd_pan": make_ts(cmd_pan_t, cmd_pan_v),
+        "cmd_tilt": make_ts(cmd_tilt_t, cmd_tilt_v),
+        "fb_pan": make_ts(fb_pan_t, fb_pan_v),
+        "fb_tilt": make_ts(fb_tilt_t, fb_tilt_v),
         "imu": (np.array(imu_t) - t0,
                 np.array(imu_ax), np.array(imu_ay), np.array(imu_az)),
     }
@@ -256,6 +264,8 @@ def main():
     parser = argparse.ArgumentParser(description="Analyze gimbal disturbance rejection")
     parser.add_argument("bag", help="Path to ROS bag file")
     parser.add_argument("--output-dir", "-o", default=None, help="Output directory")
+    parser.add_argument("--tilt-zero-deg", type=float, default=3.62,
+                        help="tilt_zero_deg from pelco_control config (default 3.62)")
     args = parser.parse_args()
 
     if not os.path.exists(args.bag):
@@ -265,9 +275,14 @@ def main():
     out_dir = args.output_dir or os.path.splitext(args.bag)[0] + "_analysis"
     os.makedirs(out_dir, exist_ok=True)
 
+    tilt_bias = 2.0 * args.tilt_zero_deg
     print(f"Loading bag: {args.bag}")
-    data = load_bag(args.bag)
+    if tilt_bias != 0:
+        print(f"  TILT bias compensation: {tilt_bias:+.2f} deg (2 x tilt_zero_deg={args.tilt_zero_deg})")
+    data = load_bag(args.bag, tilt_bias=tilt_bias)
+
     print(f"  PAN cmd: {len(data['cmd_pan'][0])} msgs, fb: {len(data['fb_pan'][0])} msgs")
+    print(f"  TILT cmd: {len(data['cmd_tilt'][0])} msgs, fb: {len(data['fb_tilt'][0])} msgs")
     print(f"  IMU: {len(data['imu'][0])} msgs")
 
     analyze(data, out_dir)
