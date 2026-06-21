@@ -178,6 +178,7 @@ const Eigen::Matrix3f init_rotation = Eigen::AngleAxisf(M_PI / 2, Eigen::Vector3
 Eigen::Vector3f init_translation = Eigen::Vector3f(0.0, 0.0, 0.0);
 const double Avia_dt = 4.0 / 960000;
 const double frame_T = 0.1;
+const double gimbal_stamp_lag_s = 0.0;  // gimbal timestamp lag (disabled, set >0 to test)
 const int frame_point_num = 24000;
 double start_timestamp = 0.0;  // Will be set to ros::Time::now().toSec() in main()
 Eigen::Matrix3f car2gimbal_rot = Eigen::Matrix3f::Identity();
@@ -206,6 +207,7 @@ void rotation_integral(const std::map<double, Eigen::Vector3f>& imu_ang_v_vec, d
   else if (start_time > end_time)
   {
     rotation_integral(imu_ang_v_vec, end_time, start_time, rot);
+    rot.transposeInPlace();
     return;
   }
   Eigen::Matrix3f rot_integral = Eigen::Matrix3f::Identity();
@@ -349,42 +351,52 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
     ROS_INFO_STREAM("\033[91m" << "Not enough gimbal data." << "\033[0m");
     return;
   }
-  
-  // Safe iterator retrieval for h_ang
-  auto it_h_ang_lower = h_ang_map.lower_bound(point_time);
+
+  // Use the last pan measurement time as compensation reference.
+  auto it_h_ang_lower = h_ang_map.lower_bound(frame_time);
   if (it_h_ang_lower == h_ang_map.begin())
   {
-    ROS_WARN("point_time is before first h_ang data");
+    ROS_WARN("frame_time is before first h_ang data");
     return;
   }
   auto it_h_ang = std::prev(it_h_ang_lower);
-  
   if (it_h_ang == h_ang_map.begin())
   {
-    ROS_WARN("Not enough h_ang data before point_time");
+    ROS_WARN("Not enough h_ang data before frame_time");
     return;
   }
   auto it_h_ang_prev = std::prev(it_h_ang);
-  
-  // Safe iterator retrieval for v_ang
-  auto it_v_ang_lower = v_ang_map.lower_bound(point_time);
+
+  double comp_head_time = it_h_ang->first;
+
+  // Look up tilt near comp_head_time and interpolate (shortest-angle)
+  auto it_v_ang_lower = v_ang_map.lower_bound(comp_head_time);
   if (it_v_ang_lower == v_ang_map.begin())
   {
-    ROS_WARN("point_time is before first v_ang data");
+    ROS_WARN("comp_head_time is before first v_ang data");
     return;
   }
   auto it_v_ang = std::prev(it_v_ang_lower);
-  
   if (it_v_ang == v_ang_map.begin())
   {
-    ROS_WARN("Not enough v_ang data before point_time");
+    ROS_WARN("Not enough v_ang data before comp_head_time");
     return;
   }
-  auto it_v_ang_prev = std::prev(it_v_ang); 
-  double comp_head_time = it_h_ang->first;  
+  auto it_v_ang_prev = std::prev(it_v_ang);
+
+  // Interpolate pan to comp_head_time (shortest-angle)
   float yaw_g_angle = it_h_ang->second - yaw_shift;
+  float diff_h = it_h_ang->second - it_h_ang_prev->second;
+  if (diff_h >  M_PI) diff_h -= 2.0f * M_PI;
+  if (diff_h < -M_PI) diff_h += 2.0f * M_PI;
+  yaw_g_angle += (comp_head_time - it_h_ang_prev->first) * diff_h / (it_h_ang->first - it_h_ang_prev->first);
+
+  // Interpolate tilt to comp_head_time (shortest-angle)
   float pitch_g_angle = it_v_ang->second - pitch_shift;
-  pitch_g_angle += (comp_head_time - it_v_ang_prev->first) * (it_v_ang->second - it_v_ang_prev->second) / (it_v_ang->first - it_v_ang_prev->first);
+  float diff_v = it_v_ang->second - it_v_ang_prev->second;
+  if (diff_v >  M_PI) diff_v -= 2.0f * M_PI;
+  if (diff_v < -M_PI) diff_v += 2.0f * M_PI;
+  pitch_g_angle += (comp_head_time - it_v_ang_prev->first) * diff_v / (it_v_ang->first - it_v_ang_prev->first);
 
   float &pitch_l_angle = yaw_g_angle; 
   float &minus_yaw_l_angle = pitch_g_angle;
@@ -398,11 +410,13 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
   
   std::map<double, Eigen::Matrix3f> frame_imu_rot_map;
   
-  // Safe iterator retrieval for IMU
-  auto it_imu_lower = imu_ang_v_vec.lower_bound(frame_time);
+  // Safe iterator retrieval for IMU.
+  // Start from frame_time - frame_T so that the pre-computed map covers
+  // the corrected point times (which are shifted earlier by frame_T).
+  auto it_imu_lower = imu_ang_v_vec.lower_bound(frame_time - frame_T);
   if (it_imu_lower == imu_ang_v_vec.begin())
   {
-    ROS_WARN("frame_time is before first IMU data");
+    ROS_WARN("frame_time - frame_T is before first IMU data");
     return;
   }
   auto it_imu = std::prev(it_imu_lower);
@@ -433,8 +447,8 @@ void pointcloud2_callback(sensor_msgs::PointCloud2Ptr p_msg)
       for (int i = 0; i < interval * cfg.frame_process_num; i+=interval)
       {
         int point_idx = frame_point_idx + i;
-        //Get the point's time.
-        double point_time = point_time_start + point_idx * Avia_dt;    
+        //Get the point's time (header.stamp is last point, subtract frame_T).
+        double point_time = point_time_start + point_idx * Avia_dt - frame_T;
         
         //Get the point's rotation.
         auto it_lower_imu_rot = --frame_imu_rot_map.lower_bound(point_time);

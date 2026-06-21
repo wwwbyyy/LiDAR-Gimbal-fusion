@@ -4,12 +4,12 @@
 octomap_prefix: "/home/loc/loc_ws/data/dianwanghesai/octomap"
 
 # Strategy update rate (Hz)
-strategy_rate: 1.5
+strategy_rate: 1.0
 
 # ERP projection
 erp_resolution_deg: 1.0       # degrees per pixel
 erp_range_max_m: 150.0        # max ray distance
-erp_self_range_m: 10.0         # voxels closer than this → n = (0,0,0)
+erp_self_range_m: 15.0         # voxels closer than this → n = (0,0,0)
 erp_vfov_min_deg: -90.0       # vertical FoV min (elevation)
 erp_vfov_max_deg: 60.0        # vertical FoV max
 
@@ -20,7 +20,7 @@ yaw_step_deg: 3.0             # search granularity
 pitch_step_deg: 3.0
 pitch_min_deg: -50.0          # candidate pitch range
 pitch_max_deg: 20.0
-weight_pitch: 50.0             # pitch penalty (0 = disabled)
+weight_pitch: 0.0             # pitch penalty (0 = disabled)
 hysteresis_ratio: 0.08       # only switch yaw if new score > old × (1+ratio)
 
 # LiDAR extrinsic: [tx, ty, tz, roll, pitch, yaw]  (m, m, m, deg, deg, deg)
