@@ -2,6 +2,7 @@
   <arg name="debug" default="false" />
   <node pkg="voxel_motion_strategy" type="voxel_motion_strategy_node"
         name="voxel_motion_strategy_node" output="screen">
+    <rosparam file="$(find voxel_motion_strategy)/configs/voxel_strategy.yaml" command="load" />
     <env name="ROSCONSOLE_CONFIG_FILE"
          value="$(find voxel_motion_strategy)/configs/rosconsole_debug.conf"
          if="$(arg debug)" />

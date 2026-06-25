@@ -38,20 +38,25 @@ class SimGimbalLidar{
     float get_yaw_deg() { return yaw_deg; }
     float get_pitch_deg() { return pitch_deg; }
     void set_yaw_deg(float v) {
-      yaw_deg = v;
-      while (yaw_deg > 180.0f) yaw_deg -= 360.0f;
-      while (yaw_deg < -180.0f) yaw_deg += 360.0f;
+      // Normalize to [0, 360) — matches pelco_control /pan format
+      yaw_deg = std::fmod(v, 360.0f);
+      if (yaw_deg < 0.0f) yaw_deg += 360.0f;
     }
-    void set_pitch_deg(float v) { pitch_deg = v; }
+    void set_pitch_deg(float v) {
+      // Normalize to [0, 360) — matches pelco_control /tilt format
+      // 0=horizontal, 0-90=down, 270-360=up
+      pitch_deg = std::fmod(v, 360.0f);
+      if (pitch_deg < 0.0f) pitch_deg += 360.0f;
+    }
     void set_yaw_vel_dps(float v) { yaw_vel_dps = v; }
     void set_pitch_vel_dps(float v) { pitch_vel_dps = v; }
     void update_dt(float dt) {
       yaw_deg += yaw_vel_dps * dt;
-      while (yaw_deg > 180.0f) yaw_deg -= 360.0f;
-      while (yaw_deg < -180.0f) yaw_deg += 360.0f;
+      yaw_deg = std::fmod(yaw_deg, 360.0f);
+      if (yaw_deg < 0.0f) yaw_deg += 360.0f;
       pitch_deg += pitch_vel_dps * dt;
-      if (pitch_deg > 90.0f) pitch_deg = 90.0f;
-      if (pitch_deg < -90.0f) pitch_deg = -90.0f;
+      pitch_deg = std::fmod(pitch_deg, 360.0f);
+      if (pitch_deg < 0.0f) pitch_deg += 360.0f;
     }
 
     SimGimbalLidar(float init_yaw_deg, float init_pitch_deg):

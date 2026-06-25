@@ -57,8 +57,6 @@ int main(int argc, char** argv) {
   RectSearchParams sp;
   sp.fov_horizontal_deg = cfg["fov_horizontal_deg"].as<double>(60.0);
   sp.fov_vertical_deg   = cfg["fov_vertical_deg"].as<double>(68.0);
-  sp.yaw_step_deg       = cfg["yaw_step_deg"].as<double>(3.0);
-  sp.pitch_step_deg     = cfg["pitch_step_deg"].as<double>(3.0);
   sp.pitch_min_deg      = cfg["pitch_min_deg"].as<double>(-50.0);
   sp.pitch_max_deg      = cfg["pitch_max_deg"].as<double>(20.0);
   sp.weight_pitch       = cfg["weight_pitch"].as<double>(0.0);
@@ -68,8 +66,8 @@ int main(int argc, char** argv) {
             << "m self_range=" << self_range << "m, vfov=["
             << vfov_min_d << "°, " << vfov_max_d << "°]" << std::endl
             << "  FoV: " << sp.fov_horizontal_deg << "°×" << sp.fov_vertical_deg << "°" << std::endl
-            << "  Search: yaw_step=" << sp.yaw_step_deg << "° pitch_step=" << sp.pitch_step_deg
-            << "° pitch_range=[" << sp.pitch_min_deg << "°, " << sp.pitch_max_deg
+            << "  Search: step=" << res_deg << "° (1 px) pitch_range=["
+            << sp.pitch_min_deg << "°, " << sp.pitch_max_deg
             << "°] weight_pitch=" << sp.weight_pitch << std::endl;
 
   // ---- Load octomap ----
@@ -87,8 +85,8 @@ int main(int argc, char** argv) {
   int h_ext = static_cast<int>(std::ceil(fov_w_px));
   IntegralImage ii = IntegralImage::build(erp, h_ext);
 
-  double yaw_step_rad   = sp.yaw_step_deg   * kDeg;
-  double pitch_step_rad = sp.pitch_step_deg * kDeg;
+  double yaw_step_rad   = erp.resolution_rad;   // 1 pixel
+  double pitch_step_rad = erp.resolution_rad;   // 1 pixel
   double p_min_rad = sp.pitch_min_deg * kDeg;
   double p_max_rad = sp.pitch_max_deg * kDeg;
   double fov_hw = (sp.fov_horizontal_deg * kDeg) * 0.5;
