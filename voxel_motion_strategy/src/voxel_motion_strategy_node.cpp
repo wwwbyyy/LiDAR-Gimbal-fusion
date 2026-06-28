@@ -209,16 +209,14 @@ void strategyUpdate(const ros::TimerEvent&) {
       if (result.valid) {
         double target_yaw_deg = result.best_yaw_rad * 180.0 / M_PI;
         g_target_pan_deg = vehicleYawToPan(target_yaw_deg);
-        // Convert ERP pitch to pelco tilt for step-to-target
-        g_target_pitch_deg = erpPitchToPelcoTilt(result.best_pitch_rad * 180.0 / M_PI);
+        g_target_pitch_deg = result.best_pitch_rad * 180.0 / M_PI;  // ERP space
         g_has_target = true;
         g_last_eval_time = now;
 
-        ROS_INFO("[Strategy] re-eval: target pan=%.1f deg tilt=%.1f deg (erp=%.1f deg) "
+        ROS_INFO("[Strategy] re-eval: target pan=%.1f deg tilt=%.1f deg (erp) "
                  "score=%.1f lambda=%.1f N=%d "
                  "yaw_range=[%.0f, %.0f] deg pitch_range=[%.0f, %.0f] deg",
                  g_target_pan_deg, g_target_pitch_deg,
-                 result.best_pitch_rad * 180.0 / M_PI,
                  result.best_score, result.lambda_min, result.N_eff,
                  yaw_min * 180.0 / M_PI, yaw_max * 180.0 / M_PI,
                  pitch_min * 180.0 / M_PI, pitch_max * 180.0 / M_PI);
@@ -248,9 +246,11 @@ void strategyUpdate(const ros::TimerEvent&) {
   double dpan_clamped = std::max(-pan_step_max, std::min(pan_step_max, dpan));
   double cmd_pan = std::fmod(pan_deg + dpan_clamped + 360.0, 360.0);
 
-  double dtilt = shortestAngleDiff(g_target_pitch_deg, tilt_deg);
+  // Tilt step in ERP space (linear, no wrap). pelco_control normalizes to pelco format.
+  double erp_tilt = pelcoTiltToErpPitch(tilt_deg);
+  double dtilt = g_target_pitch_deg - erp_tilt;
   double dtilt_clamped = std::max(-tilt_step_max, std::min(tilt_step_max, dtilt));
-  double cmd_tilt = std::fmod(tilt_deg + dtilt_clamped + 360.0, 360.0);
+  double cmd_tilt = erp_tilt + dtilt_clamped;
 
   // 4. Publish gimbal commands
   static ros::NodeHandle nh;
@@ -269,9 +269,9 @@ void strategyUpdate(const ros::TimerEvent&) {
   pub.publish(tilt_cmd);
 
   ROS_INFO("[Strategy] step: pan %.1f -> %.1f (d=%.1f max=%.1f) target=%.1f | "
-           "tilt %.1f -> %.1f (d=%.1f max=%.1f) target=%.1f",
+           "tilt %.1f -> %.1f erp (d=%.1f max=%.1f) target=%.1f erp",
            pan_deg, cmd_pan, dpan_clamped, pan_step_max, g_target_pan_deg,
-           tilt_deg, cmd_tilt, dtilt_clamped, tilt_step_max, g_target_pitch_deg);
+           erp_tilt, cmd_tilt, dtilt_clamped, tilt_step_max, g_target_pitch_deg);
 }
 
 // ---- main ----
