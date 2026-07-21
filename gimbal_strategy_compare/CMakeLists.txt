@@ -8,6 +8,7 @@ project(gimbal_strategy_compare)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
+  cyber_msgs
   nav_msgs
   pcl_conversions
   pcl_ros
@@ -16,6 +17,9 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   voxel_motion_strategy
 )
+
+find_package(PCL 1.8 REQUIRED COMPONENTS common io kdtree filters features search)
+find_package(Eigen3 REQUIRED)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -122,6 +126,8 @@ catkin_package(
 include_directories(
 # include
   ${catkin_INCLUDE_DIRS}
+  ${PCL_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
 )
 
 ## Declare a C++ library
@@ -136,6 +142,12 @@ include_directories(
 
 add_executable(local_map_publisher src/local_map_publisher.cpp)
 target_link_libraries(local_map_publisher ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
+add_executable(plane_strategy_node src/plane_strategy_node.cpp)
+target_link_libraries(plane_strategy_node ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
+add_executable(filter_plane_points scripts/filter_plane_points.cpp)
+target_link_libraries(filter_plane_points ${PCL_LIBRARIES})
 
 #############
 ## Install ##

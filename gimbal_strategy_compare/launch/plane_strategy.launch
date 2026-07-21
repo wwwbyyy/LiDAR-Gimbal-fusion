@@ -1,0 +1,6 @@
+<launch>
+  <node pkg="gimbal_strategy_compare" type="plane_strategy_node"
+        name="plane_strategy_node" output="screen">
+    <rosparam file="$(find gimbal_strategy_compare)/configs/plane_strategy.yaml" command="load" />
+  </node>
+</launch>

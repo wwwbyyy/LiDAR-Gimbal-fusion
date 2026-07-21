@@ -141,7 +141,7 @@ lidar_extinct: [1.15, 0, 1.96, 0, 0, 1.5315] #hesai，其他激光雷达需要�
 
 - sim-gimbal-lidar node
 
-  rosrun sim_gimbal_lidar sim_fimbal_lidar_node
+  rosrun sim_gimbal_lidar sim_gimbal_lidar_node
 
 # Voxel Motion Strategy
 
